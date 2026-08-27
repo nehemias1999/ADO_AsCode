@@ -1,0 +1,101 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.com/ado-as-code/project-context.schema.json",
+  "title": "Project context",
+  "description": "Shared context every automation reads: which environment variables carry the connection details, the defaults that are not worth repeating per application, the resource naming contract, and where each automation keeps its own configuration.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["organizationUrlEnv", "projectEnv", "environments", "defaults", "naming", "automations"],
+  "properties": {
+    "$schema": { "type": "string" },
+
+    "organizationUrlEnv": {
+      "type": "string",
+      "description": "Name of the environment variable holding the organization URL. The name is versioned; the value is not.",
+      "pattern": "^[A-Z][A-Z0-9_]*$"
+    },
+    "projectEnv": {
+      "type": "string",
+      "description": "Name of the environment variable holding the team project name.",
+      "pattern": "^[A-Z][A-Z0-9_]*$"
+    },
+
+    "environments": {
+      "type": "array",
+      "description": "Environment suffixes used to derive per-environment resource names.",
+      "minItems": 1,
+      "items": { "type": "string", "pattern": "^[A-Z0-9_]+$" }
+    },
+
+    "defaults": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["boardTemplateTeam", "configurationSentinel"],
+      "properties": {
+        "boardTemplateTeam": {
+          "type": "string",
+          "description": "Existing Team whose backlog iteration is copied to a newly created Team. Without it a new Team's Board fails to open with TF400509."
+        },
+        "defaultIterationMacro": {
+          "type": "string",
+          "description": "Macro assigned as the default iteration of a new Team."
+        },
+        "workingDays": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "enum": ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"]
+          }
+        },
+        "teamAdministratorMode": {
+          "type": "string",
+          "description": "How the Team administrator is chosen. 'authenticatedUser' promotes the identity behind the Personal Access Token; 'none' leaves administration untouched.",
+          "enum": ["authenticatedUser", "none"]
+        },
+        "configurationSentinel": {
+          "type": "string",
+          "description": "The only value an automation is allowed to overwrite. Anything else already carries somebody's decision.",
+          "minLength": 4
+        },
+        "serviceConnection": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "type": { "type": "string" },
+            "authorizationScheme": { "type": "string" },
+            "port": { "type": "integer", "minimum": 1, "maximum": 65535 },
+            "grantAccessToAllPipelines": {
+              "type": "boolean",
+              "description": "Keep false. A connection any pipeline may use is a lateral movement path, and the pipelines that need it are known at provisioning time."
+            }
+          }
+        }
+      }
+    },
+
+    "naming": {
+      "type": "object",
+      "description": "Resource naming contract. Every name is derived from the application key and the environment, with no per-environment exceptions: an override is how two resources that should match stop matching.",
+      "additionalProperties": false,
+      "required": ["team", "areaPath", "variableGroup", "serviceConnection"],
+      "properties": {
+        "team": { "type": "string" },
+        "areaPath": { "type": "string" },
+        "iterationPath": { "type": "string" },
+        "variableGroup": { "type": "string" },
+        "serviceConnection": { "type": "string" },
+        "approverGroup": { "type": "string" }
+      }
+    },
+
+    "automations": {
+      "type": "object",
+      "description": "Path registry, so an entry point has a default for every file it reads and the caller only overrides what differs.",
+      "minProperties": 1,
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": { "type": "string" }
+      }
+    }
+  }
+}

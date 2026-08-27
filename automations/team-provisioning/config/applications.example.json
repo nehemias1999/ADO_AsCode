@@ -1,0 +1,53 @@
+{
+  "$schema": "../schemas/applications.schema.json",
+
+  "applications": [
+    {
+      "key": "APP_ALPHA",
+      "description": "Customer portal. Managed manually, no CI/CD pipeline.",
+      "membersEnv": "APP_ALPHA_MEMBERS",
+      "team": {
+        "name": "APP_ALPHA_Team",
+        "description": "Delivery team for APP_ALPHA."
+      },
+      "board": {
+        "name": "Issues",
+        "workItemTypes": ["Epic", "Issue", "Task"]
+      },
+      "areaPaths": {
+        "default": "APP_ALPHA_Team",
+        "additional": [
+          "APP_ALPHA_Team/Development",
+          "APP_ALPHA_Team/Testing",
+          "APP_ALPHA_Team/Infrastructure"
+        ]
+      },
+      "iterationPaths": {
+        "default": "APP_ALPHA_Team/Sprint 01",
+        "additional": [
+          "APP_ALPHA_Team/Sprint 02",
+          "APP_ALPHA_Team/Sprint 03"
+        ]
+      }
+    },
+    {
+      "key": "APP_BETA",
+      "description": "Reporting service. Minimal declaration: one area path, one sprint.",
+      "membersEnv": "APP_BETA_MEMBERS",
+      "team": {
+        "name": "APP_BETA_Team",
+        "description": "Delivery team for APP_BETA."
+      },
+      "board": {
+        "name": "Issues",
+        "workItemTypes": ["Issue"]
+      },
+      "areaPaths": {
+        "default": "APP_BETA_Team"
+      },
+      "iterationPaths": {
+        "default": "APP_BETA_Team/Sprint 01"
+      }
+    }
+  ]
+}

@@ -1,0 +1,49 @@
+{
+  "$schema": "../schemas/project-context.schema.json",
+
+  "organizationUrlEnv": "ADO_ORG_URL",
+  "projectEnv": "ADO_PROJECT",
+
+  "environments": ["DEV", "QA", "PROD"],
+
+  "defaults": {
+    "boardTemplateTeam": "Platform Team",
+    "defaultIterationMacro": "@currentIteration",
+    "workingDays": ["monday", "tuesday", "wednesday", "thursday", "friday"],
+    "teamAdministratorMode": "authenticatedUser",
+    "configurationSentinel": "PENDING_OWNER_CONFIGURATION",
+    "serviceConnection": {
+      "type": "ssh",
+      "authorizationScheme": "UsernamePassword",
+      "port": 22,
+      "grantAccessToAllPipelines": false
+    }
+  },
+
+  "naming": {
+    "team": "{application}_Team",
+    "areaPath": "{project}\\{application}_Team",
+    "iterationPath": "{project}\\{application}_Team\\{iteration}",
+    "variableGroup": "Credentials_{application}_{environment}",
+    "serviceConnection": "SFTP_{application}_{environment}",
+    "approverGroup": "{application}_{environment}_Approvers"
+  },
+
+  "automations": {
+    "team-provisioning": {
+      "configuration": "automations/team-provisioning/config/applications.json",
+      "template": "automations/team-provisioning/config/applications.example.json",
+      "boardColumns": "automations/team-provisioning/config/board-columns.json"
+    },
+    "variable-group-configuration": {
+      "configuration": "automations/variable-group-configuration/config/scope.json",
+      "template": "automations/variable-group-configuration/config/scope.example.json",
+      "values": "automations/variable-group-configuration/config/variable-groups.csv",
+      "valuesTemplate": "automations/variable-group-configuration/config/variable-groups.example.csv"
+    },
+    "service-connection-provisioning": {
+      "configuration": "automations/service-connection-provisioning/config/service-connections.json",
+      "template": "automations/service-connection-provisioning/config/service-connections.example.json"
+    }
+  }
+}

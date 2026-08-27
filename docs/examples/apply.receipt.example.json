@@ -1,0 +1,38 @@
+﻿{
+    "generatedAt":  "2026-08-26T23:52:00.7651902Z",
+    "target":  "APP_ALPHA",
+    "status":  "completed",
+    "message":  "Applied 5 operation(s).",
+    "completedOperations":  [
+                                {
+                                    "resource":  "Area Path",
+                                    "name":  "APP_ALPHA_Team\\Testing",
+                                    "action":  "create",
+                                    "detail":  "Created."
+                                },
+                                {
+                                    "resource":  "Iteration Path",
+                                    "name":  "APP_ALPHA_Team\\Sprint 02",
+                                    "action":  "create",
+                                    "detail":  "Created."
+                                },
+                                {
+                                    "resource":  "Team iteration",
+                                    "name":  "APP_ALPHA_Team\\Sprint 02",
+                                    "action":  "add",
+                                    "detail":  "Subscribed the Team to the iteration."
+                                },
+                                {
+                                    "resource":  "Team member",
+                                    "name":  "sam.okafor@contoso.com",
+                                    "action":  "add",
+                                    "detail":  "Added to the Team."
+                                },
+                                {
+                                    "resource":  "Board column",
+                                    "name":  "Issues",
+                                    "action":  "reconcile",
+                                    "detail":  "Reconciled. Changes: position 5 would change from \u0027To QA\u0027 to \u0027Ready for QA\u0027; itemLimit of \u0027Doing\u0027 would change from 0 to 5"
+                                }
+                            ]
+}

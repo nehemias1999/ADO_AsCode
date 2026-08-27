@@ -1,0 +1,32 @@
+{
+  "$schema": "../schemas/service-connections.schema.json",
+
+  "namePattern": "SFTP_{application}_{environment}",
+
+  "defaults": {
+    "port": 22,
+    "grantAccessToAllPipelines": false,
+    "description": "SFTP endpoint for {application} in {environment}. Managed as code; credentials are completed by the platform owner."
+  },
+
+  "credentialVariables": {
+    "hostEnv": "SFTP_{application}_{environment}_HOST",
+    "usernameEnv": "SFTP_{application}_{environment}_USERNAME",
+    "passwordEnv": "SFTP_{application}_{environment}_PASSWORD",
+    "privateKeyEnv": "SFTP_{application}_{environment}_PRIVATE_KEY"
+  },
+
+  "applications": [
+    {
+      "key": "APP_ALPHA",
+      "description": "Customer portal. One endpoint per environment.",
+      "environments": ["DEV", "QA", "PROD"]
+    },
+    {
+      "key": "APP_BETA",
+      "description": "Reporting service. Deploys only below production so far.",
+      "environments": ["DEV", "QA"],
+      "port": 2222
+    }
+  ]
+}

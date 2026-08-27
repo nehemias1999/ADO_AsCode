@@ -1,0 +1,104 @@
+name: quality gate
+
+# Runs the same command a contributor runs locally: scripts/Invoke-Tests.ps1.
+# One entry point for both means "it passed on my machine" and "it passed in CI"
+# describe the same set of checks, which is the only way that sentence is useful.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  quality-gate:
+    # windows-latest because Windows PowerShell 5.1 is the stated support floor, and
+    # this is where that claim is actually exercised rather than assumed.
+    runs-on: windows-latest
+
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@v4
+
+      - name: Report the PowerShell version under test
+        shell: powershell
+        run: |
+          $PSVersionTable | Format-List | Out-String | Write-Host
+          Write-Host "Test-Json -Schema available: $([bool]((Get-Command Test-Json -ErrorAction SilentlyContinue) -and (Get-Command Test-Json).Parameters.ContainsKey('Schema')))"
+
+      - name: Install the test tooling
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          Set-PSRepository -Name PSGallery -InstallationPolicy Trusted
+          Install-Module Pester -MinimumVersion 5.5 -Scope CurrentUser -Force -SkipPublisherCheck
+          Install-Module PSScriptAnalyzer -Scope CurrentUser -Force
+          # Test-time only. The automations themselves have no dependency beyond
+          # PowerShell, which is what lets them run on a locked-down workstation.
+
+      - name: Check the prerequisites without writing anything
+        shell: powershell
+        run: ./scripts/bootstrap.ps1 -CheckOnly
+
+      - name: Run the quality gate
+        shell: powershell
+        run: ./scripts/Invoke-Tests.ps1
+
+      - name: Validate every automation offline
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          # Proves the claim the guides make: validate needs no credentials. This job
+          # has none, so if any of these needed one, the step would fail here.
+          ./automations/team-provisioning/Invoke-TeamProvisioning.ps1 -Command validate
+          ./automations/variable-group-configuration/Invoke-VariableGroupConfiguration.ps1 -Command validate
+          ./automations/service-connection-provisioning/Invoke-ServiceConnectionProvisioning.ps1 -Command validate
+
+  documentation:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@v4
+
+      - name: Every document is indexed and every internal link resolves
+        shell: bash
+        run: |
+          set -euo pipefail
+          failed=0
+
+          # An unindexed document is treated as incomplete: nobody finds it, so it
+          # rots, and a rotted document is worse than a missing one.
+          while IFS= read -r doc; do
+            name=$(basename "$doc")
+            [ "$name" = "README.md" ] && continue
+            [ "$name" = "_template.md" ] && continue
+            if ! grep -q "$name" docs/README.md; then
+              echo "NOT INDEXED: $doc"
+              failed=1
+            fi
+          done < <(find docs -name '*.md')
+
+          # Relative links, resolved from the linking file.
+          while IFS= read -r file; do
+            dir=$(dirname "$file")
+            grep -oE '\]\([^)#][^)]*\)' "$file" | sed -E 's/^\]\(//; s/\)$//' | while IFS= read -r link; do
+              case "$link" in http*|mailto:*) continue ;; esac
+              target="${link%%#*}"
+              [ -z "$target" ] && continue
+              if [ ! -e "$dir/$target" ]; then
+                echo "BROKEN LINK: $file -> $link"
+                exit 1
+              fi
+            done || failed=1
+          done < <(find . -name '*.md' -not -path './.git/*')
+
+          if [ "$failed" -ne 0 ]; then
+            echo "Documentation check failed."
+            exit 1
+          fi
+          echo "Documentation check passed."

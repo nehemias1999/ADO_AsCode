@@ -1,0 +1,87 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.com/ado-as-code/applications.schema.json",
+  "title": "Applications under team provisioning",
+  "description": "Declares the Teams, classification paths and Boards this automation manages. Paths are relative to the team project and use '/' as the separator; the project segment comes from the environment, so the same declaration works in any organization. Membership is never declared here - only the NAME of the environment variable that carries it.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["applications"],
+  "properties": {
+    "$schema": { "type": "string" },
+
+    "applications": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "#/$defs/application" }
+    }
+  },
+
+  "$defs": {
+    "application": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["key", "team", "board", "areaPaths"],
+      "properties": {
+        "key": {
+          "type": "string",
+          "description": "Identifier passed as -ApplicationKey. No spaces, so it is safe on a command line and in a resource name.",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]*$",
+          "minLength": 2,
+          "maxLength": 64
+        },
+        "description": { "type": "string" },
+        "membersEnv": {
+          "type": "string",
+          "description": "Name of the environment variable holding a separated list of sign-in addresses. The list itself is personal data and must never be committed.",
+          "pattern": "^[A-Z][A-Z0-9_]*$"
+        },
+        "team": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["name"],
+          "properties": {
+            "name": { "type": "string", "minLength": 2 },
+            "description": { "type": "string" }
+          }
+        },
+        "board": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["name"],
+          "properties": {
+            "name": {
+              "type": "string",
+              "description": "Board to reconcile. Its columns come from the shared board-columns configuration.",
+              "minLength": 1
+            },
+            "workItemTypes": {
+              "type": "array",
+              "description": "Types the automation verifies exist in the project process before touching the Board. A column mapped to a state that does not exist fails the whole column write with an opaque error.",
+              "items": { "type": "string", "minLength": 1 }
+            }
+          }
+        },
+        "areaPaths": { "$ref": "#/$defs/pathSet" },
+        "iterationPaths": { "$ref": "#/$defs/pathSet" }
+      }
+    },
+
+    "pathSet": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["default"],
+      "properties": {
+        "default": {
+          "type": "string",
+          "description": "Path assigned as the Team default. Relative to the project, '/' separated.",
+          "minLength": 1
+        },
+        "additional": {
+          "type": "array",
+          "description": "Further paths the Team may use. Missing ones are created; existing ones are never removed.",
+          "items": { "type": "string", "minLength": 1 }
+        }
+      }
+    }
+  }
+}

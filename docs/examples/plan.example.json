@@ -1,0 +1,108 @@
+﻿{
+    "module":  "team-provisioning",
+    "command":  "plan",
+    "target":  "APP_ALPHA",
+    "generatedAt":  "2026-01-15T09:12:44.0000000Z",
+    "summary":  {
+                    "total":  12,
+                    "ok":  5,
+                    "pending":  5,
+                    "warning":  1,
+                    "protected":  1,
+                    "blocked":  0
+                },
+    "operations":  [
+                       {
+                           "resource":  "Team",
+                           "name":  "APP_ALPHA_Team",
+                           "action":  "exists",
+                           "status":  "ok",
+                           "reason":  "The Team exists and is adopted as is."
+                       },
+                       {
+                           "resource":  "Team administrator",
+                           "name":  "APP_ALPHA_Team",
+                           "action":  "authorize",
+                           "status":  "pending",
+                           "reason":  "The identity behind the Personal Access Token is added as a member and promoted to Team administrator. Creating a Team through the API does not do this."
+                       },
+                       {
+                           "resource":  "Area Path",
+                           "name":  "APP_ALPHA_Team",
+                           "action":  "exists",
+                           "status":  "ok",
+                           "reason":  "The Areas node exists."
+                       },
+                       {
+                           "resource":  "Area Path",
+                           "name":  "APP_ALPHA_Team\\Testing",
+                           "action":  "create",
+                           "status":  "pending",
+                           "reason":  "The Areas node is missing and will be created. Existing nodes are never removed."
+                       },
+                       {
+                           "resource":  "Iteration Path",
+                           "name":  "APP_ALPHA_Team\\Sprint 02",
+                           "action":  "create",
+                           "status":  "pending",
+                           "reason":  "The Iterations node is missing and will be created. Existing nodes are never removed."
+                       },
+                       {
+                           "resource":  "Team work configuration",
+                           "name":  "APP_ALPHA_Team",
+                           "action":  "exists",
+                           "status":  "ok",
+                           "reason":  "Backlog iteration is set and the default Area Path is \u0027Platform\\APP_ALPHA_Team\u0027."
+                       },
+                       {
+                           "resource":  "Team member",
+                           "name":  "dana.reyes@contoso.com",
+                           "action":  "exists",
+                           "status":  "ok",
+                           "reason":  "Already a member."
+                       },
+                       {
+                           "resource":  "Team member",
+                           "name":  "sam.okafor@contoso.com",
+                           "action":  "add",
+                           "status":  "pending",
+                           "reason":  "Declared but not a member yet. Members are only added, never removed."
+                       },
+                       {
+                           "resource":  "Work Item type",
+                           "name":  "Issue",
+                           "action":  "validate",
+                           "status":  "ok",
+                           "reason":  "Exists, and every mapped state is valid (3 state(s))."
+                       },
+                       {
+                           "resource":  "Board column",
+                           "name":  "Issues",
+                           "action":  "reconcile",
+                           "status":  "pending",
+                           "reason":  "position 5 would change from \u0027To QA\u0027 to \u0027Ready for QA\u0027; itemLimit of \u0027Doing\u0027 would change from 0 to 5"
+                       },
+                       {
+                           "resource":  "Undeclared variable",
+                           "name":  "Credentials_APP_ALPHA_DEV/LEGACY_FLAG",
+                           "action":  "skip",
+                           "status":  "warning",
+                           "reason":  "Present but not declared in the scope. It is preserved, not removed. Either declare it or remove it in the portal, so the scope stays an accurate description of the group."
+                       },
+                       {
+                           "resource":  "Service Connection",
+                           "name":  "SFTP_APP_ALPHA_DEV",
+                           "action":  "exists",
+                           "status":  "protected",
+                           "reason":  "Connection \u0027SFTP_APP_ALPHA_DEV\u0027 exists and is not modified. A full PUT would replace its credential with null, and GET does not return the stored value."
+                       }
+                   ],
+    "detail":  {
+                   "inventory":  {
+                                     "teams":  7,
+                                     "boards":  7,
+                                     "variableGroups":  12,
+                                     "serviceConnections":  5
+                                 }
+               }
+}

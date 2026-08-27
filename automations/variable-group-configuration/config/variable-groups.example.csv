@@ -1,0 +1,14 @@
+application,environment,variable,value
+APP_ALPHA,DEV,APP_SERVER_HOST,app-dev-01.contoso.local
+APP_ALPHA,DEV,APP_SERVER_USERNAME,svc_deploy_dev
+APP_ALPHA,DEV,DEPLOY_PATH,/srv/app-alpha
+APP_ALPHA,QA,APP_SERVER_HOST,app-qa-01.contoso.local
+APP_ALPHA,QA,APP_SERVER_USERNAME,svc_deploy_qa
+APP_ALPHA,QA,DEPLOY_PATH,/srv/app-alpha
+APP_ALPHA,PROD,APP_SERVER_HOST,app-prod-01.contoso.local
+APP_ALPHA,PROD,APP_SERVER_USERNAME,svc_deploy_prod
+APP_ALPHA,PROD,DEPLOY_PATH,/srv/app-alpha
+APP_ALPHA,PROD,ENABLE_BACKUP,true
+APP_BETA,DEV,APP_SERVER_HOST,app-dev-01.contoso.local
+APP_BETA,DEV,APP_SERVER_USERNAME,svc_deploy_dev
+APP_BETA,DEV,DEPLOY_PATH,/srv/app-beta

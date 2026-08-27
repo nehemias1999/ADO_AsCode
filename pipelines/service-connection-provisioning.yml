@@ -1,0 +1,136 @@
+# Runs service-connection-provisioning from Azure DevOps itself.
+#
+# See pipelines/README.md for the pattern every pipeline in this folder follows.
+#
+# Note what is missing: there is no parameter for the force switches. Overwriting an
+# existing connection replaces a credential that cannot be read back, so it is not a
+# checkbox on a pipeline form. Whoever needs it runs the command deliberately, from a
+# workstation, having decided that is the right thing to do.
+
+trigger: none
+pr: none
+
+parameters:
+  - name: command
+    displayName: Command
+    type: string
+    default: plan
+    values:
+      - validate
+      - inventory
+      - plan
+      - smoke
+      - apply
+
+  - name: applicationKey
+    displayName: Application key (blank means every declared application)
+    type: string
+    default: ''
+
+  - name: environment
+    displayName: Environment (blank means every declared environment)
+    type: string
+    default: ''
+    values:
+      - ''
+      - DEV
+      - QA
+      - PROD
+
+  - name: confirmApply
+    displayName: Confirm apply
+    type: boolean
+    default: false
+
+  - name: organizationUrl
+    displayName: Organization URL
+    type: string
+    default: https://dev.azure.com/contoso
+
+  - name: project
+    displayName: Team project
+    type: string
+    default: Platform
+
+variables:
+  - group: ado-as-code
+  # Holds the SFTP_* credential variables. Kept in its own group so the people who
+  # may run a plan are not automatically the people who hold the credentials.
+  - group: ado-as-code-connections
+
+pool:
+  vmImage: windows-latest
+
+steps:
+  - checkout: self
+    displayName: Check out the repository
+
+  - powershell: |
+      $ErrorActionPreference = 'Stop'
+
+      $lines = @(
+        "ADO_ORG_URL=${{ parameters.organizationUrl }}",
+        "ADO_PROJECT=${{ parameters.project }}",
+        "ADO_PAT=$env:ADO_PAT"
+      )
+
+      # Only the credential variables that actually have a value. A connection with
+      # no credential available is created with the configuration sentinel and handed
+      # to its owner, which is a normal, expected outcome rather than a failure.
+      foreach ($name in @(
+        'SFTP_APP_ALPHA_DEV_HOST', 'SFTP_APP_ALPHA_DEV_USERNAME', 'SFTP_APP_ALPHA_DEV_PASSWORD',
+        'SFTP_APP_ALPHA_QA_HOST', 'SFTP_APP_ALPHA_QA_USERNAME', 'SFTP_APP_ALPHA_QA_PASSWORD',
+        'SFTP_APP_ALPHA_PROD_HOST', 'SFTP_APP_ALPHA_PROD_USERNAME', 'SFTP_APP_ALPHA_PROD_PASSWORD',
+        'SFTP_APP_BETA_DEV_HOST', 'SFTP_APP_BETA_DEV_USERNAME', 'SFTP_APP_BETA_DEV_PASSWORD',
+        'SFTP_APP_BETA_QA_HOST', 'SFTP_APP_BETA_QA_USERNAME', 'SFTP_APP_BETA_QA_PASSWORD'
+      )) {
+        $value = [Environment]::GetEnvironmentVariable($name)
+        if ($value) { $lines += "$name=$value" }
+      }
+
+      $lines | Set-Content -LiteralPath .env.pipeline -Encoding UTF8
+      Write-Host "Wrote .env.pipeline with $($lines.Count) variable(s). Values are not echoed."
+    displayName: Materialise the environment file
+    env:
+      ADO_PAT: $(ADO_PAT)
+      SFTP_APP_ALPHA_DEV_HOST: $(SFTP_APP_ALPHA_DEV_HOST)
+      SFTP_APP_ALPHA_DEV_USERNAME: $(SFTP_APP_ALPHA_DEV_USERNAME)
+      SFTP_APP_ALPHA_DEV_PASSWORD: $(SFTP_APP_ALPHA_DEV_PASSWORD)
+      SFTP_APP_ALPHA_QA_HOST: $(SFTP_APP_ALPHA_QA_HOST)
+      SFTP_APP_ALPHA_QA_USERNAME: $(SFTP_APP_ALPHA_QA_USERNAME)
+      SFTP_APP_ALPHA_QA_PASSWORD: $(SFTP_APP_ALPHA_QA_PASSWORD)
+      SFTP_APP_ALPHA_PROD_HOST: $(SFTP_APP_ALPHA_PROD_HOST)
+      SFTP_APP_ALPHA_PROD_USERNAME: $(SFTP_APP_ALPHA_PROD_USERNAME)
+      SFTP_APP_ALPHA_PROD_PASSWORD: $(SFTP_APP_ALPHA_PROD_PASSWORD)
+      SFTP_APP_BETA_DEV_HOST: $(SFTP_APP_BETA_DEV_HOST)
+      SFTP_APP_BETA_DEV_USERNAME: $(SFTP_APP_BETA_DEV_USERNAME)
+      SFTP_APP_BETA_DEV_PASSWORD: $(SFTP_APP_BETA_DEV_PASSWORD)
+      SFTP_APP_BETA_QA_HOST: $(SFTP_APP_BETA_QA_HOST)
+      SFTP_APP_BETA_QA_USERNAME: $(SFTP_APP_BETA_QA_USERNAME)
+      SFTP_APP_BETA_QA_PASSWORD: $(SFTP_APP_BETA_QA_PASSWORD)
+
+  - powershell: |
+      $ErrorActionPreference = 'Stop'
+
+      $arguments = @{
+        Command = '${{ parameters.command }}'
+        EnvFile = '.env.pipeline'
+      }
+
+      if ('${{ parameters.applicationKey }}') { $arguments.ApplicationKey = '${{ parameters.applicationKey }}' }
+      if ('${{ parameters.environment }}') { $arguments.Environment = '${{ parameters.environment }}' }
+
+      if ('${{ parameters.command }}' -eq 'apply') {
+        if ('${{ parameters.confirmApply }}' -ne 'True') {
+          throw "'apply' requires the Confirm apply parameter. Re-run with it ticked, after reviewing a plan."
+        }
+        $arguments.ConfirmApply = $true
+      }
+
+      ./automations/service-connection-provisioning/Invoke-ServiceConnectionProvisioning.ps1 @arguments
+    displayName: Run service-connection-provisioning
+
+  - publish: artifacts
+    artifact: service-connection-provisioning-$(Build.BuildId)
+    displayName: Publish the plan and report
+    condition: always()

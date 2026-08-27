@@ -1,0 +1,115 @@
+# Runs variable-group-configuration from Azure DevOps itself.
+#
+# See pipelines/README.md for the pattern every pipeline in this folder follows.
+#
+# One extra concern here: writing a Variable Group that holds secrets requires
+# re-posting those secrets in the same request, so the secret variables the groups
+# in scope contain have to be available to this run under their own names. If one
+# is missing, the automation blocks rather than writing - which is the correct
+# outcome, and the plan step will say so before anything is applied.
+
+trigger: none
+pr: none
+
+parameters:
+  - name: command
+    displayName: Command
+    type: string
+    default: plan
+    values:
+      - validate
+      - inventory
+      - plan
+      - smoke
+      - apply
+
+  - name: applicationKey
+    displayName: Application key (blank means the whole scope)
+    type: string
+    default: ''
+
+  - name: environment
+    displayName: Environment (blank means every environment in scope)
+    type: string
+    default: ''
+    values:
+      - ''
+      - DEV
+      - QA
+      - PROD
+
+  - name: confirmApply
+    displayName: Confirm apply
+    type: boolean
+    default: false
+
+  - name: organizationUrl
+    displayName: Organization URL
+    type: string
+    default: https://dev.azure.com/contoso
+
+  - name: project
+    displayName: Team project
+    type: string
+    default: Platform
+
+variables:
+  - group: ado-as-code
+
+pool:
+  vmImage: windows-latest
+
+steps:
+  - checkout: self
+    displayName: Check out the repository
+
+  - powershell: |
+      $ErrorActionPreference = 'Stop'
+
+      $lines = @(
+        "ADO_ORG_URL=${{ parameters.organizationUrl }}",
+        "ADO_PROJECT=${{ parameters.project }}",
+        "ADO_PAT=$env:ADO_PAT"
+      )
+
+      # Every secret Variable Group value this run may need to re-post. A name with
+      # no value is written as an empty line and skipped, so the automation reports
+      # the group as blocked instead of silently blanking the credential.
+      foreach ($name in @('APP_ALPHA_PASSWORD', 'APP_BETA_PASSWORD')) {
+        $value = [Environment]::GetEnvironmentVariable($name)
+        if ($value) { $lines += "$name=$value" }
+      }
+
+      $lines | Set-Content -LiteralPath .env.pipeline -Encoding UTF8
+      Write-Host "Wrote .env.pipeline with $($lines.Count) variable(s). Values are not echoed."
+    displayName: Materialise the environment file
+    env:
+      ADO_PAT: $(ADO_PAT)
+      APP_ALPHA_PASSWORD: $(APP_ALPHA_PASSWORD)
+      APP_BETA_PASSWORD: $(APP_BETA_PASSWORD)
+
+  - powershell: |
+      $ErrorActionPreference = 'Stop'
+
+      $arguments = @{
+        Command = '${{ parameters.command }}'
+        EnvFile = '.env.pipeline'
+      }
+
+      if ('${{ parameters.applicationKey }}') { $arguments.ApplicationKey = '${{ parameters.applicationKey }}' }
+      if ('${{ parameters.environment }}') { $arguments.Environment = '${{ parameters.environment }}' }
+
+      if ('${{ parameters.command }}' -eq 'apply') {
+        if ('${{ parameters.confirmApply }}' -ne 'True') {
+          throw "'apply' requires the Confirm apply parameter. Re-run with it ticked, after reviewing a plan."
+        }
+        $arguments.ConfirmApply = $true
+      }
+
+      ./automations/variable-group-configuration/Invoke-VariableGroupConfiguration.ps1 @arguments
+    displayName: Run variable-group-configuration
+
+  - publish: artifacts
+    artifact: variable-group-configuration-$(Build.BuildId)
+    displayName: Publish the plan, report and receipt
+    condition: always()

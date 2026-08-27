@@ -1,0 +1,80 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.com/ado-as-code/service-connections.schema.json",
+  "title": "SSH Service Connections",
+  "description": "Which SSH/SFTP Service Connections exist, and the NAMES of the environment variables their credentials come from. No credential value is ever declared here. Connection names and credential variable names are both derived from patterns, so a connection and the variable that fills it can never drift apart.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["namePattern", "credentialVariables", "applications"],
+  "properties": {
+    "$schema": { "type": "string" },
+
+    "namePattern": {
+      "type": "string",
+      "description": "Connection name derived from the application and the environment.",
+      "pattern": ".*\\{application\\}.*\\{environment\\}.*"
+    },
+
+    "defaults": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "port": { "type": "integer", "minimum": 1, "maximum": 65535 },
+        "grantAccessToAllPipelines": {
+          "type": "boolean",
+          "description": "Keep false. A connection every pipeline may use is a lateral movement path, and the pipelines that need it are known when it is created."
+        },
+        "description": {
+          "type": "string",
+          "description": "Description template. Supports {application} and {environment}."
+        }
+      }
+    },
+
+    "credentialVariables": {
+      "type": "object",
+      "description": "Patterns for the environment variable names that carry the credential. Declaring a name rather than a value is what lets this file be committed at all.",
+      "additionalProperties": false,
+      "required": ["hostEnv", "usernameEnv"],
+      "properties": {
+        "hostEnv": { "type": "string", "minLength": 1 },
+        "usernameEnv": { "type": "string", "minLength": 1 },
+        "passwordEnv": { "type": "string", "minLength": 1 },
+        "privateKeyEnv": {
+          "type": "string",
+          "description": "Optional. When a key is available it is used instead of a password, and the field is omitted entirely when it is not - sending it empty declares a certificate slot Azure DevOps then insists on having filled.",
+          "minLength": 1
+        }
+      }
+    },
+
+    "applications": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["key", "environments"],
+        "properties": {
+          "key": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]*$"
+          },
+          "description": { "type": "string" },
+          "environments": {
+            "type": "array",
+            "description": "Environments this application actually deploys to. An environment listed here that has no deployment gets a connection nobody uses, which is one more credential to rotate for no benefit.",
+            "minItems": 1,
+            "items": { "type": "string", "pattern": "^[A-Z0-9_]+$" }
+          },
+          "port": {
+            "type": "integer",
+            "description": "Overrides the default port for this application.",
+            "minimum": 1,
+            "maximum": 65535
+          }
+        }
+      }
+    }
+  }
+}

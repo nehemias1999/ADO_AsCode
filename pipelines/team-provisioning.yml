@@ -1,0 +1,113 @@
+# Runs team-provisioning from Azure DevOps itself.
+#
+# Three things about this file are deliberate and repeat across every pipeline here.
+#
+# 1. trigger: none. A pipeline that governs the project must not run because
+#    somebody pushed a commit. It runs when a person asks for it, having read a plan.
+# 2. The command is a parameter with a closed list of values, and `apply` also
+#    requires confirmApply. The confirmation exists in two places - here and in the
+#    script - because the pipeline UI is where the mistake is easiest to make.
+# 3. Secrets reach the script the same way they do on a workstation: as environment
+#    variables written into a .env file at run time, from a variable group. The
+#    script has no idea whether it is running on an agent or on a laptop.
+
+trigger: none
+pr: none
+
+parameters:
+  - name: command
+    displayName: Command
+    type: string
+    default: plan
+    values:
+      - validate
+      - inventory
+      - plan
+      - smoke
+      - apply
+      - reconcile
+
+  - name: applicationKey
+    displayName: Application key (required except for validate and inventory)
+    type: string
+    default: ''
+
+  - name: confirmApply
+    displayName: Confirm apply (required for apply and reconcile)
+    type: boolean
+    default: false
+
+  - name: organizationUrl
+    displayName: Organization URL
+    type: string
+    default: https://dev.azure.com/contoso
+
+  - name: project
+    displayName: Team project
+    type: string
+    default: Platform
+
+variables:
+  # Holds ADO_PAT and the per-application membership variables, all marked secret.
+  - group: ado-as-code
+
+pool:
+  vmImage: windows-latest
+
+steps:
+  - checkout: self
+    displayName: Check out the repository
+
+  - powershell: |
+      $ErrorActionPreference = 'Stop'
+
+      # Secrets are not exposed to the script as environment variables by default,
+      # so they are written into the same .env file the automation reads locally.
+      # The file lives in the agent workspace, which is discarded after the run, and
+      # it is excluded from version control anyway.
+      $lines = @(
+        "ADO_ORG_URL=${{ parameters.organizationUrl }}",
+        "ADO_PROJECT=${{ parameters.project }}",
+        "ADO_PAT=$env:ADO_PAT"
+      )
+      $lines | Set-Content -LiteralPath .env.pipeline -Encoding UTF8
+      Write-Host "Wrote .env.pipeline with $($lines.Count) variable(s). Values are not echoed."
+    displayName: Materialise the environment file
+    env:
+      ADO_PAT: $(ADO_PAT)
+
+  - powershell: |
+      $ErrorActionPreference = 'Stop'
+
+      $arguments = @{
+        Command = '${{ parameters.command }}'
+        EnvFile = '.env.pipeline'
+      }
+
+      if ('${{ parameters.applicationKey }}') {
+        $arguments.ApplicationKey = '${{ parameters.applicationKey }}'
+      }
+
+      # The gate, stated twice on purpose. The script refuses to write without
+      # -ConfirmApply; this refuses to even reach the script without the box ticked.
+      if ('${{ parameters.command }}' -in 'apply', 'reconcile') {
+        if ('${{ parameters.confirmApply }}' -ne 'True') {
+          throw "'${{ parameters.command }}' requires the Confirm apply parameter. Re-run with it ticked, after reviewing a plan."
+        }
+        $arguments.ConfirmApply = $true
+      }
+
+      ./automations/team-provisioning/Invoke-TeamProvisioning.ps1 @arguments
+    displayName: Run team-provisioning
+    env:
+      # Membership never reaches the repository. It arrives here as a secret
+      # variable and is read by name at run time.
+      APP_ALPHA_MEMBERS: $(APP_ALPHA_MEMBERS)
+      APP_BETA_MEMBERS: $(APP_BETA_MEMBERS)
+
+  - publish: artifacts
+    artifact: team-provisioning-$(Build.BuildId)
+    displayName: Publish the plan, report and receipt
+    # always(), because the evidence of a failed apply is the point: the receipt
+    # records exactly which operations completed before it stopped.
+    condition: always()

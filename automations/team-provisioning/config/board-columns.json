@@ -1,0 +1,65 @@
+{
+  "$schema": "../schemas/board-columns.schema.json",
+
+  "name": "Issues",
+
+  "preserveUndeclaredColumns": true,
+
+  "columns": [
+    {
+      "name": "To Do",
+      "columnType": "incoming",
+      "itemLimit": 0,
+      "stateMappings": { "Issue": "To Do" },
+      "description": "Accepted, not started. Azure DevOps requires exactly one incoming column and it must be first."
+    },
+    {
+      "name": "Doing",
+      "columnType": "inProgress",
+      "itemLimit": 5,
+      "stateMappings": { "Issue": "Doing" },
+      "description": "Work in progress. The item limit is a review prompt, not a hard gate."
+    },
+    {
+      "name": "Blocked",
+      "columnType": "inProgress",
+      "itemLimit": 0,
+      "stateMappings": { "Issue": "Doing" },
+      "description": "Waiting on something outside the team."
+    },
+    {
+      "name": "Dev Done",
+      "columnType": "inProgress",
+      "itemLimit": 0,
+      "stateMappings": { "Issue": "Doing" }
+    },
+    {
+      "name": "Ready for QA",
+      "columnType": "inProgress",
+      "itemLimit": 0,
+      "stateMappings": { "Issue": "Doing" },
+      "previousNames": ["To QA"],
+      "description": "Renamed from 'To QA'. previousNames lets the reconciler reuse the existing column id, so the Work Items already on it move with the rename instead of being left behind on a duplicate column."
+    },
+    {
+      "name": "In QA",
+      "columnType": "inProgress",
+      "itemLimit": 0,
+      "stateMappings": { "Issue": "Doing" },
+      "previousNames": ["Testing Done"]
+    },
+    {
+      "name": "Ready for Prod",
+      "columnType": "inProgress",
+      "itemLimit": 0,
+      "stateMappings": { "Issue": "Doing" }
+    },
+    {
+      "name": "Done",
+      "columnType": "outgoing",
+      "itemLimit": 0,
+      "stateMappings": { "Issue": "Done" },
+      "description": "Azure DevOps requires exactly one outgoing column and it must be last."
+    }
+  ]
+}

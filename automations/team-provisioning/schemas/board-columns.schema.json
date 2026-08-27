@@ -1,0 +1,62 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.com/ado-as-code/board-columns.schema.json",
+  "title": "Board column template",
+  "description": "The declared column collection for a Board. Azure DevOps replaces the whole collection on write, so this file plus the reconciler's preservation rules are what stand between a routine apply and lost Work Items.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["name", "preserveUndeclaredColumns", "columns"],
+  "properties": {
+    "$schema": { "type": "string" },
+
+    "name": {
+      "type": "string",
+      "description": "Board this template applies to.",
+      "minLength": 1
+    },
+    "preserveUndeclaredColumns": {
+      "type": "boolean",
+      "description": "Must be true. A column that exists but is not declared is preserved, never deleted. The value is declared rather than assumed so that turning the guarantee off would be a visible, reviewable change - and the validator refuses it anyway.",
+      "const": true
+    },
+    "columns": {
+      "type": "array",
+      "description": "Ordered columns. Exactly one 'incoming' first and one 'outgoing' last; Azure DevOps rejects the entire write otherwise.",
+      "minItems": 2,
+      "items": { "$ref": "#/$defs/column" }
+    }
+  },
+
+  "$defs": {
+    "column": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "columnType", "stateMappings"],
+      "properties": {
+        "name": { "type": "string", "minLength": 1 },
+        "columnType": {
+          "type": "string",
+          "enum": ["incoming", "inProgress", "outgoing"]
+        },
+        "itemLimit": {
+          "type": "integer",
+          "description": "Work-in-progress limit. 0 means no limit.",
+          "minimum": 0
+        },
+        "isSplit": { "type": "boolean" },
+        "description": { "type": "string" },
+        "stateMappings": {
+          "type": "object",
+          "description": "Work Item type to state. State names come from the project process, not from this repository.",
+          "minProperties": 1,
+          "additionalProperties": { "type": "string", "minLength": 1 }
+        },
+        "previousNames": {
+          "type": "array",
+          "description": "Names this column used to have. Transitional: it is how the reconciler recognises a renamed column and reuses its id so its Work Items follow the rename. Remove an entry once every environment has been reconciled.",
+          "items": { "type": "string", "minLength": 1 }
+        }
+      }
+    }
+  }
+}

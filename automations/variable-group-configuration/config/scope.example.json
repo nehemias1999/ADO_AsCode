@@ -1,0 +1,45 @@
+{
+  "$schema": "../schemas/scope.schema.json",
+
+  "applications": ["APP_ALPHA", "APP_BETA"],
+
+  "environments": ["DEV", "QA", "PROD"],
+
+  "groupNamePattern": "Credentials_{application}_{environment}",
+
+  "declaredKeys": [
+    {
+      "name": "APP_SERVER_HOST",
+      "isSecret": false,
+      "description": "Host the pipeline deploys to."
+    },
+    {
+      "name": "APP_SERVER_USERNAME",
+      "isSecret": false,
+      "description": "Service account used by the deployment step."
+    },
+    {
+      "name": "APP_SERVER_PASSWORD",
+      "isSecret": true,
+      "description": "Completed by the platform owner in the portal. A secret value never travels through a CSV or a commit."
+    },
+    {
+      "name": "DEPLOY_PATH",
+      "isSecret": false,
+      "description": "Absolute path on the target host."
+    },
+    {
+      "name": "ENABLE_BACKUP",
+      "isSecret": false,
+      "description": "Switches on the pre-deployment backup step. Declared here and forbidden below production on purpose - see forbiddenKeysByEnvironment."
+    }
+  ],
+
+  "forbiddenKeysByEnvironment": {
+    "DEV": ["ENABLE_BACKUP"],
+    "QA": ["ENABLE_BACKUP"],
+    "PROD": []
+  },
+
+  "manualExclusions": []
+}
