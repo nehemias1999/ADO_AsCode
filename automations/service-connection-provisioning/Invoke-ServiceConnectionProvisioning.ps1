@@ -100,6 +100,10 @@ param(
 )
 
 Set-StrictMode -Version Latest
+
+# Commands that write. Naming them once keeps the -ApplicationKey requirement and the
+# confirmation gate from drifting apart as verbs are added.
+$script:WritingCommands = @('apply')
 $ErrorActionPreference = 'Stop'
 
 $moduleName = 'service-connection-provisioning'
@@ -472,6 +476,14 @@ if (-not $ConfigurationPath) {
 
 $configuration = Get-AdoAsCodeConfiguration -Path $ConfigurationPath
 $declared = @(Get-DeclaredConnection -Configuration $configuration)
+
+# A writing verb is narrowed to one application - see the note in
+# Invoke-VariableGroupConfiguration.ps1. Without it, 'apply -ConfirmApply' with no key
+# created connections for every declared application and environment at once.
+# Checked before any credential is read, so a test can cover it offline.
+if ($Command -in $script:WritingCommands -and -not $ApplicationKey) {
+    throw "-ApplicationKey is required by '$Command'. It is what keeps one run to one application. Declared: $(@($declared | ForEach-Object { $_.application } | Sort-Object -Unique) -join ', ')."
+}
 
 if ($ApplicationKey) {
     $declared = @($declared | Where-Object { $_.application -eq $ApplicationKey })
