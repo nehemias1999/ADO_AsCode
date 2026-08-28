@@ -133,3 +133,76 @@ Describe 'Remove-SecretFromText' {
         Remove-SecretFromText -Text $null | Should -BeNullOrEmpty
     }
 }
+
+Describe 'Get-AdoRetryDecision' {
+
+    It 'retries a throttled GET' {
+        $d = Get-AdoRetryDecision -Method Get -StatusCode 429 -Attempt 1 -MaximumAttempts 4
+        $d.ShouldRetry | Should -BeTrue
+    }
+
+    It 'never retries a POST, however transient the failure looks' {
+        # POST creates. A 502 from a gateway AFTER the server committed, followed by a
+        # retry, produces a duplicate Team, group, Variable Group or Service Connection
+        # - and a duplicate is precisely what Ado.Identity and Ado.Library treat as a
+        # blocking condition. The retry meant to add resilience manufactured the one
+        # state the design refuses to guess about.
+        foreach ($status in @(429, 500, 502, 503, 504, 408)) {
+            $d = Get-AdoRetryDecision -Method Post -StatusCode $status -Attempt 1 -MaximumAttempts 4
+            $d.ShouldRetry | Should -BeFalse -Because "POST must not be retried on $status"
+            $d.Reason | Should -BeLike '*could create a duplicate*'
+        }
+    }
+
+    It 'does not retry PATCH either' {
+        # Not idempotent in general, and nothing here needs it retried.
+        $d = Get-AdoRetryDecision -Method Patch -StatusCode 503 -Attempt 1 -MaximumAttempts 4
+        $d.ShouldRetry | Should -BeFalse
+    }
+
+    It 'retries a transport failure that carries no status' {
+        # DNS failure, TLS reset, connection reset, timeout. These are the MOST
+        # transient failures there are, and they were the ones excluded - while 500,
+        # which may well have committed server-side, was retried. Risk profile
+        # inverted.
+        $d = Get-AdoRetryDecision -Method Get -StatusCode $null -Attempt 1 -MaximumAttempts 4
+        $d.ShouldRetry | Should -BeTrue
+    }
+
+    It 'does not retry a real answer' {
+        foreach ($status in @(400, 401, 403, 404, 409, 422)) {
+            $d = Get-AdoRetryDecision -Method Get -StatusCode $status -Attempt 1 -MaximumAttempts 4
+            $d.ShouldRetry | Should -BeFalse -Because "HTTP $status is an answer, not a failure to repeat"
+        }
+    }
+
+    It 'retries 408, which was missing from the set' {
+        $d = Get-AdoRetryDecision -Method Get -StatusCode 408 -Attempt 1 -MaximumAttempts 4
+        $d.ShouldRetry | Should -BeTrue
+    }
+
+    It 'stops on the last attempt' {
+        $d = Get-AdoRetryDecision -Method Get -StatusCode 503 -Attempt 4 -MaximumAttempts 4
+        $d.ShouldRetry | Should -BeFalse
+        $d.Reason | Should -BeLike '*was the last*'
+    }
+
+    It 'backs off exponentially when the service does not say otherwise' {
+        (Get-AdoRetryDecision -Method Get -StatusCode 503 -Attempt 1 -MaximumAttempts 4).DelaySeconds | Should -Be 1
+        (Get-AdoRetryDecision -Method Get -StatusCode 503 -Attempt 2 -MaximumAttempts 4).DelaySeconds | Should -Be 2
+        (Get-AdoRetryDecision -Method Get -StatusCode 503 -Attempt 3 -MaximumAttempts 4).DelaySeconds | Should -Be 4
+    }
+
+    It 'honours Retry-After over its own backoff' {
+        $d = Get-AdoRetryDecision -Method Get -StatusCode 429 -RetryAfterSeconds 7 -Attempt 1 -MaximumAttempts 4
+        $d.DelaySeconds | Should -Be 7
+    }
+
+    It 'caps Retry-After, so a hostile value cannot park the run' {
+        # 'Retry-After: 999999' from a service or an intercepting proxy otherwise
+        # sleeps for eleven days.
+        $d = Get-AdoRetryDecision -Method Get -StatusCode 429 -RetryAfterSeconds 999999 -Attempt 1 -MaximumAttempts 4
+        $d.DelaySeconds | Should -BeLessOrEqual 120
+        $d.DelaySeconds | Should -BeGreaterThan 0
+    }
+}
