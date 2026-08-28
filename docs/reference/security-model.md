@@ -42,6 +42,27 @@ one path to reason about instead of two.
 None of those files is versioned. `.gitignore` excludes `.env*`, `.local/`,
 `artifacts/`, and every active configuration file created by renaming a template.
 
+## 2b. Where the credential is allowed to go
+
+The organization URL is **lower trust than the token**. The token comes from a secret
+store; the URL comes from a `.env` file or a pipeline parameter. Since the URL decides
+which host receives the `Basic` header, it is validated before a context is built:
+
+| Rule | Enforced by |
+| --- | --- |
+| Scheme must be `https` | `Assert-AdoOrganizationUrl` |
+| Host must be `dev.azure.com`, a `*.visualstudio.com` host, or one named in `-AllowedHost` | `Assert-AdoOrganizationUrl` |
+
+Without the host rule only the last path segment was inspected, so
+`https://attacker.example/dev.azure.com/contoso` was accepted and resolved to
+organization `contoso`. Every `Core` request then went to `attacker.example` with the
+token attached, while the `Identity` requests went to the real service — so the run
+partly succeeded and looked legitimate.
+
+Azure DevOps Server does not use those host names. `-AllowedHost` is a parameter rather
+than a configuration field on purpose: trusting a host with a credential should be
+visible in a diff at the call site.
+
 ## 3. The sentinel
 
 `PENDING_OWNER_CONFIGURATION` is the only value an automation will overwrite.

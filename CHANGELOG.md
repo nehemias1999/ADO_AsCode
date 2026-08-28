@@ -10,7 +10,29 @@ breaking change to a schema is a major version, whatever the code did.
 
 ## [Unreleased]
 
-Nothing yet.
+### Security
+
+- **Foundation** — the organization URL is validated before the Personal Access Token is
+  aimed at it. `https` is now required, and the host must be `dev.azure.com`, a
+  `*.visualstudio.com` host, or one named explicitly in `-AllowedHost`. Previously only
+  the last path segment was checked, so `http://` was accepted (putting the token on the
+  network in clear text) and so was
+  `https://attacker.example/dev.azure.com/contoso` — which resolved to organization
+  `contoso` and sent every `Core` request, token attached, to `attacker.example`, while
+  the `Identity` requests went to the real service, so the run partly succeeded and
+  looked legitimate.
+
+### Added
+
+- **Foundation** — `Assert-AdoOrganizationUrl`, exported so a caller can validate a URL
+  before building a context.
+- **Tests** — `tests/foundation/Ado.Rest.Tests.ps1`, the first tests for `Ado.Rest`.
+  Sixteen cases covering URL validation, organization-name derivation, Basic header
+  construction and `Remove-SecretFromText` — the last of which
+  `docs/process/risk-register.md` credits as a control and which had no test at all.
+
+**Breaking for on-premises users:** an Azure DevOps Server URL now requires
+`-AllowedHost`. Azure DevOps Services URLs are unaffected.
 
 ## [1.0.0] - 2026-01
 
