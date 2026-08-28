@@ -10,7 +10,30 @@ breaking change to a schema is a major version, whatever the code did.
 
 ## [Unreleased]
 
-Nothing yet.
+### Fixed
+
+- **Foundation** — `Remove-SensitiveValue` no longer redacts property names that merely
+  contain a sensitive substring. An unanchored `pat` matched `areaPaths`,
+  `iterationPaths`, `reportPath`, `patch` and `compatible`, so every `team-provisioning`
+  `inventory` report replaced its Area Path and Iteration Path inventory — the data the
+  report exists to carry — with `[redacted]`, silently. Short, ambiguous tokens (`pat`,
+  `key`, `sas`, `cert`, `auth`, `bearer`) now match only as a whole name or a whole
+  `_`/`-` delimited segment.
+- **Foundation** — `Remove-SensitiveValue` no longer collapses a single-element list into
+  a bare value. PowerShell enumerates a function's output, so a one-item inventory list
+  was serialised into the report as a string instead of an array, changing the shape of
+  the evidence file.
+
+### Security
+
+- **Foundation** — redaction now also covers `passphrase`, `connectionstring`, `connstr`,
+  `sshkey`, `signingkey`, `accesskey`, `keymaterial` and `signature`. Every one of those
+  names previously passed through in clear text, so a Variable Group secret named
+  `SFTP_KEY` or `DB_CONNSTR` had its resolved value written to `artifacts/`.
+
+Report content changes for the better: paths that were `[redacted]` now appear, and
+credential-named fields that appeared now do not. `plan` output is otherwise unchanged
+for unchanged input.
 
 ## [1.0.0] - 2026-01
 

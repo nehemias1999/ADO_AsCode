@@ -174,6 +174,69 @@ Describe 'AdoAsCode.Report' {
         $sanitized.nested.port | Should -Be 22
     }
 
+    It 'leaves a property whose name merely contains a sensitive substring' {
+        # The test this suite was missing. Redaction had only ever been asserted in
+        # the direction of "the secret is gone", so an over-broad pattern was
+        # invisible: an unanchored 'pat' matched areaPaths and iterationPaths, and
+        # every team-provisioning inventory report replaced its path inventory - the
+        # data the report exists to carry - with the redaction marker.
+        #
+        # Destroying evidence is not the safe direction of a redaction bug. It is
+        # the direction nobody notices.
+        $sanitized = Remove-SensitiveValue -InputObject ([pscustomobject]@{
+            areaPaths      = @('APP_TEST', 'APP_TEST\Sub')
+            iterationPaths = @('APP_TEST\Sprint 1')
+            reportPath     = 'artifacts/reports/plan.json'
+            patch          = 'applied'
+            compatible     = $true
+        })
+
+        @($sanitized.areaPaths).Count | Should -Be 2
+        $sanitized.areaPaths[0] | Should -Be 'APP_TEST'
+        # A one-element list has to stay a list. It did not: the function's output was
+        # enumerated on return, so this arrived as a bare string and indexing it gave
+        # 'A' - the first character.
+        $sanitized.iterationPaths -is [array] | Should -BeTrue
+        @($sanitized.iterationPaths).Count | Should -Be 1
+        $sanitized.iterationPaths[0] | Should -Be 'APP_TEST\Sprint 1'
+        $sanitized.reportPath | Should -Be 'artifacts/reports/plan.json'
+        $sanitized.patch | Should -Be 'applied'
+        $sanitized.compatible | Should -BeTrue
+    }
+
+    It 'redacts a whole-segment sensitive name' {
+        # The other half: 'pat' and 'key' still have to match when they ARE the name
+        # or a delimited segment of it, which is how the real variables are spelled.
+        $fixtureValue = 'fixture'
+        $sanitized = Remove-SensitiveValue -InputObject ([pscustomobject]@{
+            ADO_PAT      = $fixtureValue
+            SFTP_KEY     = $fixtureValue
+            SIGNING_CERT = $fixtureValue
+        })
+
+        $sanitized.ADO_PAT | Should -Be '[redacted]'
+        $sanitized.SFTP_KEY | Should -Be '[redacted]'
+        $sanitized.SIGNING_CERT | Should -Be '[redacted]'
+    }
+
+    It 'redacts credential names the previous pattern missed' {
+        # Every name here passed through in clear text before this change, because
+        # the pattern listed only password/secret/token/apikey shapes.
+        $fixtureValue = 'fixture'
+        $sanitized = Remove-SensitiveValue -InputObject ([pscustomobject]@{
+            passphrase       = $fixtureValue
+            connectionString = $fixtureValue
+            sshKey           = $fixtureValue
+            accessKey        = $fixtureValue
+            signature        = $fixtureValue
+            bearerToken      = $fixtureValue
+        })
+
+        foreach ($property in $sanitized.PSObject.Properties) {
+            $property.Value | Should -Be '[redacted]' -Because "$($property.Name) names a credential"
+        }
+    }
+
     It 'redacts inside a collection' {
         $sanitized = Remove-SensitiveValue -InputObject @(
             [pscustomobject]@{ name = 'a'; token = 'secret-a' }

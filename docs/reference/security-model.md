@@ -99,6 +99,35 @@ names the consequence rather than the action.
 Redaction matches on the **name**, not the value, and that is the important part: a
 weak password does not look like a secret, but its property name always does.
 
+### How the name is matched
+
+The pattern has two halves, because one unanchored list of words is wrong in both
+directions at the same time.
+
+| Half | Matches | Examples |
+| --- | --- | --- |
+| Long, unambiguous tokens | Anywhere in the name, case-insensitively — which is what covers camelCase | `password`, `secret`, `token`, `apikey`, `privatekey`, `sshkey`, `passphrase`, `connectionstring`, `signature` |
+| Short tokens that are also common substrings | Only as a whole name or a whole `_`/`-` delimited segment | `pat`, `key`, `sas`, `cert`, `auth`, `bearer` |
+
+The second half exists because of a real defect: an unanchored `pat` matched
+`areaPaths`, `iterationPaths`, `reportPath`, `patch` and `compatible`, so every
+`team-provisioning` inventory report replaced its Area Path and Iteration Path
+inventory — the data the report exists to carry — with `[redacted]`, and said nothing.
+Over-redaction is not the safe direction of this bug; it is the direction nobody
+notices, because the artefact still looks well-formed.
+
+### What this does not catch
+
+Name matching cannot see a credential that arrives in a field with an innocent name.
+The plan and receipt schema uses `value`, `reason`, `detail` and `message`, none of
+which match, so a secret interpolated into free-text prose is written verbatim. Two
+consequences follow, and both are live:
+
+- Do not interpolate a value into a plan `reason`. Describe the difference instead.
+- A future change should honour the `isSecret` flag that sits next to the value in a
+  Variable Group payload, and add a value-shape check for high-entropy strings and PEM
+  headers. Redaction by name is a first layer, not the whole control.
+
 ## 7. The sensitive data gate
 
 `scripts/Test-NoSensitiveData.ps1` runs in `Invoke-Tests.ps1` and in CI. Two layers:
