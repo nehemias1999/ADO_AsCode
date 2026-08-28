@@ -31,6 +31,11 @@ breaking change to a schema is a major version, whatever the code did.
 - **Docs** — `docs/reference/command-model.md` now states which verbs require the
   parameter per module, rather than a blanket claim two of three modules did not meet.
 
+Residual, stated rather than left implicit: requiring `-ApplicationKey` narrows an
+`apply` to one application but **not** to one environment, so DEV, QA and PROD for that
+application remain in a single `apply`. Pass `-Environment` as well to narrow further.
+The documented contract only ever promised the application boundary.
+
 ### Security
 
 - **`service-connection-provisioning`** — an SSH private key is no longer copied into the
