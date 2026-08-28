@@ -28,6 +28,10 @@ $script:DefaultApiVersion = '7.1'
 # retrying a 400 or a 409 only multiplies the damage.
 $script:RetryableStatusCodes = @(429, 500, 502, 503, 504)
 
+# Upper bound on a single request. Azure DevOps answers well inside this; the point
+# is that an unresponsive endpoint cannot park an apply forever.
+$script:RequestTimeoutSeconds = 100
+
 function Remove-SecretFromText {
     <#
     .SYNOPSIS
@@ -263,6 +267,80 @@ function New-AdoUri {
     return "$uri`?$($queryParts -join '&')"
 }
 
+function New-AdoRequestParameter {
+    <#
+    .SYNOPSIS
+        Builds the splat passed to Invoke-RestMethod for one Azure DevOps request.
+
+    .DESCRIPTION
+        A pure function, so the two protections that are easy to omit and invisible
+        when missing can be asserted by a test rather than trusted.
+
+        MaximumRedirection is 0. Windows PowerShell 5.1 - the support floor declared
+        in this module's manifest - forwards caller-supplied headers verbatim across
+        a redirect, including a cross-origin one, and offers no
+        -PreserveAuthorizationOnRedirect to turn that off. So any 3xx, from a captive
+        portal or a misconfigured gateway, would receive the Basic header carrying the
+        PAT. A redirect is not an expected answer from this API, so refusing to follow
+        one costs nothing and closes the replay.
+
+        TimeoutSec is bounded. Without it a single request has no upper bound, and an
+        unresponsive endpoint parks an apply with no way to observe why.
+
+    .PARAMETER Context
+        Connection context from Get-AdoContext.
+
+    .PARAMETER Method
+        HTTP method.
+
+    .PARAMETER Uri
+        Fully qualified request URI.
+
+    .PARAMETER Body
+        Object to serialize as the request body. Omit for a request without one.
+
+    .PARAMETER ContentType
+        Content type for the body.
+
+    .EXAMPLE
+        New-AdoRequestParameter -Context $context -Method Get -Uri $uri
+
+    .OUTPUTS
+        Hashtable, ready to splat onto Invoke-RestMethod.
+    #>
+    # Pure function: it computes a value and changes no system state. ShouldProcess
+    # would offer a confirmation prompt for something there is nothing to confirm
+    # about, and would train people to answer yes.
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '')]
+    [CmdletBinding()]
+    [OutputType([hashtable])]
+    param(
+        [Parameter(Mandatory)] [object] $Context,
+        [Parameter(Mandatory)] [ValidateSet('Get', 'Post', 'Put', 'Patch', 'Delete')] [string] $Method,
+        [Parameter(Mandatory)] [string] $Uri,
+        [object] $Body,
+        [string] $ContentType = 'application/json'
+    )
+
+    $parameters = @{
+        Method             = $Method
+        Uri                = $Uri
+        Headers            = $Context.Headers
+        MaximumRedirection = 0
+        TimeoutSec         = $script:RequestTimeoutSeconds
+    }
+
+    if ($PSBoundParameters.ContainsKey('Body') -and $null -ne $Body) {
+        $json = ConvertTo-Json -InputObject $Body -Depth 20
+        $parameters.ContentType = $ContentType
+        # Encoding the body explicitly avoids the mojibake that appears when a
+        # non-ASCII name is sent with the default encoding of Invoke-RestMethod.
+        $parameters.Body = [Text.Encoding]::UTF8.GetBytes($json)
+    }
+
+    return $parameters
+}
+
 function Invoke-AdoRest {
     <#
     .SYNOPSIS
@@ -323,19 +401,9 @@ function Invoke-AdoRest {
         [switch] $AllowNotFound
     )
 
-    $parameters = @{
-        Method  = $Method
-        Uri     = $Uri
-        Headers = $Context.Headers
-    }
-
-    if ($PSBoundParameters.ContainsKey('Body') -and $null -ne $Body) {
-        $json = ConvertTo-Json -InputObject $Body -Depth 20
-        $parameters.ContentType = $ContentType
-        # Encoding the body explicitly avoids the mojibake that appears when a
-        # non-ASCII name is sent with the default encoding of Invoke-RestMethod.
-        $parameters.Body = [Text.Encoding]::UTF8.GetBytes($json)
-    }
+    $requestArguments = @{ Context = $Context; Method = $Method; Uri = $Uri; ContentType = $ContentType }
+    if ($PSBoundParameters.ContainsKey('Body') -and $null -ne $Body) { $requestArguments.Body = $Body }
+    $parameters = New-AdoRequestParameter @requestArguments
 
     for ($attempt = 1; $attempt -le $MaximumAttempts; $attempt++) {
         try {
@@ -405,7 +473,10 @@ function Invoke-AdoRestPaged {
         }
 
         try {
-            $response = Invoke-WebRequest -Method Get -Uri $pageUri -Headers $Context.Headers -UseBasicParsing
+            # -MaximumRedirection 0 and -TimeoutSec for the same reasons as in
+            # Invoke-AdoRest: this call carries the same Basic header.
+            $response = Invoke-WebRequest -Method Get -Uri $pageUri -Headers $Context.Headers -UseBasicParsing `
+                -MaximumRedirection 0 -TimeoutSec $script:RequestTimeoutSeconds
         }
         catch {
             $detail = Get-AdoErrorDetail -ErrorRecord $_
@@ -599,6 +670,7 @@ Export-ModuleMember -Function @(
     'Get-AdoContext',
     'Get-RequiredEnvironmentVariable',
     'New-AdoUri',
+    'New-AdoRequestParameter',
     'Invoke-AdoRest',
     'Invoke-AdoRestPaged',
     'Get-AdoProject',
