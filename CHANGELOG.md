@@ -10,7 +10,19 @@ breaking change to a schema is a major version, whatever the code did.
 
 ## [Unreleased]
 
-Nothing yet.
+### Fixed
+
+- **CI** — the `documentation` job no longer fails on a document that contains no
+  relative links. `grep` exits 1 when it matches nothing, and under `set -o pipefail`
+  that became the pipeline's status, so `|| failed=1` fired on a *clean* file. Four ADRs
+  triggered it, which means the job has been red while printing only
+  `Documentation check failed.` — a failing gate that named nothing, which is the
+  failure mode most likely to train people to ignore it.
+- **CI** — the link check now reports every broken link instead of the first one per
+  file. Its `exit 1` was inside a pipeline subshell, so it left the subshell rather than
+  the job, and a genuine broken link was indistinguishable from the false positive above.
+- **CI** — the index check matches the file name as a fixed string (`grep -F`). It was
+  treated as a regex, so the dots in a file name were wildcards.
 
 ## [1.0.0] - 2026-01
 
