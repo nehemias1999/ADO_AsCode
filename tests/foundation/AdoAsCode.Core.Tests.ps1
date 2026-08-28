@@ -122,6 +122,48 @@ Describe 'AdoAsCode.Configuration' {
         @(Get-AdoAsCodeMemberList -VariableName 'TEST_MEMBERS_ABSENT' -AllowEmpty).Count | Should -Be 0
     }
 
+    It 'refuses a variable name that steers the interpreter' {
+        # Without this, a .env file is a code execution path rather than a
+        # configuration one: the name is written straight into the process
+        # environment, and the next Import-Module in Import-Foundation.ps1 resolves
+        # modules from PSModulePath.
+        $hostileFile = Join-Path $TestDrive 'hostile.env'
+        @('ADO_PAT=fixture', 'PSModulePath=C:ttacker\modules') |
+            Set-Content -LiteralPath $hostileFile -Encoding UTF8
+
+        { Import-AdoAsCodeEnvironment -Path $hostileFile } |
+            Should -Throw -ExpectedMessage '*Refusing to set*'
+    }
+
+    It 'refuses the interpreter names case-insensitively' {
+        # The Windows environment is case-insensitive, so a denylist that is not
+        # would be decorative.
+        $hostileFile = Join-Path $TestDrive 'hostile-case.env'
+        'psmodulepath=C:ttacker\modules' | Set-Content -LiteralPath $hostileFile -Encoding UTF8
+
+        { Import-AdoAsCodeEnvironment -Path $hostileFile } |
+            Should -Throw -ExpectedMessage '*Refusing to set*'
+    }
+
+    It 'refuses a name that is not shaped like a variable' {
+        $oddFile = Join-Path $TestDrive 'odd-name.env'
+        'NOT A NAME=value' | Set-Content -LiteralPath $oddFile -Encoding UTF8
+
+        { Import-AdoAsCodeEnvironment -Path $oddFile } |
+            Should -Throw -ExpectedMessage '*Invalid variable name*'
+    }
+
+    It 'refuses rather than skipping, so a run cannot proceed half-loaded' {
+        # The variable before the hostile line is deliberately checked: a skip would
+        # leave the caller with a partially loaded environment and no signal.
+        $mixedFile = Join-Path $TestDrive 'mixed.env'
+        @('K5_BEFORE=set', 'Path=C:ttacker', 'K5_AFTER=set') |
+            Set-Content -LiteralPath $mixedFile -Encoding UTF8
+
+        { Import-AdoAsCodeEnvironment -Path $mixedFile } | Should -Throw
+        [Environment]::GetEnvironmentVariable('K5_AFTER', 'Process') | Should -BeNullOrEmpty
+    }
+
     It 'validates the shipped project context against its schema' {
         $root = Get-RepositoryRoot
         $result = Test-AdoAsCodeConfiguration `

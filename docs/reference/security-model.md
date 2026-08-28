@@ -42,6 +42,26 @@ one path to reason about instead of two.
 None of those files is versioned. `.gitignore` excludes `.env*`, `.local/`,
 `artifacts/`, and every active configuration file created by renaming a template.
 
+### What a `.env` file is allowed to set
+
+`.env` is operator-edited, unsigned and unhashed, and `Import-AdoAsCodeEnvironment`
+writes whatever it names into the process environment. So the *name* is validated, not
+just the value:
+
+| Rule | Why |
+| --- | --- |
+| Name must match `^[A-Za-z_][A-Za-z0-9_]*$` | Anything else is not an environment variable, and accepting it hides a typo |
+| `PSModulePath`, `Path`, `PSExecutionPolicyPreference`, `PSHOME`, `PATHEXT`, `ComSpec`, `DOTNET_STARTUP_HOOKS`, `DOTNET_ADDITIONAL_DEPS`, `LD_PRELOAD`, `LD_LIBRARY_PATH` are refused | Each changes where the interpreter finds code or executables |
+
+Without the second rule a `.env` file is a **code execution** path rather than a
+configuration one: a line reading `PSModulePath=\somewhere\share` was applied
+verbatim, and the next `Import-Module` in `foundation/Import-Foundation.ps1` resolved
+modules from it.
+
+Both refusals throw rather than skip the line. A silently ignored line in a credential
+file is how a run proceeds without the credential it needed and fails later somewhere
+unrelated.
+
 ## 3. The sentinel
 
 `PENDING_OWNER_CONFIGURATION` is the only value an automation will overwrite.
