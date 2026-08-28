@@ -201,3 +201,85 @@ Describe 'Get-AdoServiceEndpointStatus' {
         $status.status | Should -Be 'blocked'
     }
 }
+
+Describe 'New-AdoSshServiceEndpointPayload' {
+
+    BeforeAll {
+        $script:project = [pscustomobject]@{ id = 'project-id'; name = 'Platform' }
+        # Deliberately NOT a real PEM header. A test fixture carrying the genuine
+        # delimiter would be flagged by scripts/Test-NoSensitiveData.ps1 - correctly,
+        # since the gate cannot tell a fixture from the real thing. The assertions
+        # below only need a token distinctive enough to find in a rendered payload.
+        $script:keyMarker = 'INVENTED-KEY-MATERIAL-NOT-A-CREDENTIAL'
+        $script:privateKey = "$($script:keyMarker)-line-1`n$($script:keyMarker)-line-2"
+    }
+
+    It 'keeps the private key out of the data bag' {
+        # The reason this test exists: `data` is returned in clear text by
+        # GET _apis/serviceendpoint/endpoints to every identity with project read
+        # access, so a key duplicated there stops being a secret. It was duplicated
+        # there.
+        $payload = New-AdoSshServiceEndpointPayload -Project $script:project -Name 'SFTP_APP_TEST_DEV' `
+            -ServerHost 'sftp.example.invalid' -Username 'svc_deploy' -PrivateKey $script:privateKey
+
+        @($payload.data.Keys) | Should -Be @('Host', 'Port')
+        ($payload.data.Values -join ' ') | Should -Not -BeLike "*$($script:keyMarker)*"
+    }
+
+    It 'sends the private key as a write-only authorization parameter' {
+        $payload = New-AdoSshServiceEndpointPayload -Project $script:project -Name 'SFTP_APP_TEST_DEV' `
+            -ServerHost 'sftp.example.invalid' -Username 'svc_deploy' -PrivateKey $script:privateKey
+
+        $payload.authorization.parameters.privateKey | Should -Be $script:privateKey
+    }
+
+    It 'carries no credential outside authorization.parameters' {
+        # Stated as a whole-payload assertion rather than per field, so a future
+        # field that happens to carry a credential fails here instead of shipping.
+        $payload = New-AdoSshServiceEndpointPayload -Project $script:project -Name 'SFTP_APP_TEST_DEV' `
+            -ServerHost 'sftp.example.invalid' -Username 'svc_deploy' `
+            -PrivateKey $script:privateKey -Password 'sup3rsecret'
+
+        $withoutAuthorization = @{}
+        foreach ($key in $payload.Keys) {
+            if ($key -eq 'authorization') { continue }
+            $withoutAuthorization[$key] = $payload[$key]
+        }
+        $rendered = $withoutAuthorization | ConvertTo-Json -Depth 8
+
+        $rendered | Should -Not -BeLike "*$($script:keyMarker)*"
+        $rendered | Should -Not -BeLike '*sup3rsecret*'
+    }
+
+    It 'prefers the private key over a password' {
+        $payload = New-AdoSshServiceEndpointPayload -Project $script:project -Name 'SFTP_APP_TEST_DEV' `
+            -ServerHost 'sftp.example.invalid' -Username 'svc_deploy' `
+            -PrivateKey $script:privateKey -Password 'sup3rsecret'
+
+        $payload.authorization.parameters.Contains('password') | Should -BeFalse
+    }
+
+    It 'omits the private key field entirely when there is no key' {
+        # An empty privateKey declares a certificate slot Azure DevOps keeps, which
+        # then has to be filled before the connection works.
+        $payload = New-AdoSshServiceEndpointPayload -Project $script:project -Name 'SFTP_APP_TEST_DEV' `
+            -ServerHost 'sftp.example.invalid' -Username 'svc_deploy' -Password 'sup3rsecret'
+
+        $payload.authorization.parameters.Contains('privateKey') | Should -BeFalse
+        $payload.authorization.parameters.password | Should -Be 'sup3rsecret'
+    }
+
+    It 'falls back to the sentinel when no credential is available' {
+        $payload = New-AdoSshServiceEndpointPayload -Project $script:project -Name 'SFTP_APP_TEST_DEV' `
+            -ServerHost 'sftp.example.invalid' -Username 'svc_deploy'
+
+        $payload.authorization.parameters.password | Should -Be (Get-AdoConfigurationSentinel)
+    }
+
+    It 'never grants the connection to every pipeline' {
+        $payload = New-AdoSshServiceEndpointPayload -Project $script:project -Name 'SFTP_APP_TEST_DEV' `
+            -ServerHost 'sftp.example.invalid' -Username 'svc_deploy'
+
+        $payload.isShared | Should -BeFalse
+    }
+}
