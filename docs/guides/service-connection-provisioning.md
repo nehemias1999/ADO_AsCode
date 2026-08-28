@@ -84,6 +84,24 @@ sent empty. An empty `PrivateKey` declares a certificate slot Azure DevOps keeps
 then insists on having filled, which is a confusing state to hand to whoever completes
 the credential.
 
+### Where the credential is written
+
+A Service Connection payload has two bags, and Azure DevOps treats them differently:
+
+| Bag | Returned by GET | What goes there |
+| --- | --- | --- |
+| `authorization.parameters` | Never | Every credential: user name, password, private key |
+| `data` | **Yes, in clear text** | `Host` and `Port`, and nothing else |
+
+`data` comes straight back on `GET _apis/serviceendpoint/endpoints` to every identity
+with read access to the project, so anything written there is readable — including by
+`inventory`. Credential material therefore belongs in `authorization.parameters` and
+nowhere else.
+
+`New-AdoSshServiceEndpointPayload` builds this body as a pure function precisely so the
+rule can be asserted: `tests/foundation/Ado.Library.VariableGroups.Tests.ps1` renders the
+payload with `authorization` removed and fails if any credential appears in what is left.
+
 Case 3 is a normal outcome, not a failure. The automation creates the structure; the
 credential holder completes it in the portal; no later run overwrites what they set,
 because the sentinel is the only value this repository will replace.

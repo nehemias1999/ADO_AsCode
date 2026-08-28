@@ -10,19 +10,27 @@ breaking change to a schema is a major version, whatever the code did.
 
 ## [Unreleased]
 
-### Fixed
+### Security
 
-- **CI** — the `documentation` job no longer fails on a document that contains no
-  relative links. `grep` exits 1 when it matches nothing, and under `set -o pipefail`
-  that became the pipeline's status, so `|| failed=1` fired on a *clean* file. Four ADRs
-  triggered it, which means the job has been red while printing only
-  `Documentation check failed.` — a failing gate that named nothing, which is the
-  failure mode most likely to train people to ignore it.
-- **CI** — the link check now reports every broken link instead of the first one per
-  file. Its `exit 1` was inside a pipeline subshell, so it left the subshell rather than
-  the job, and a genuine broken link was indistinguishable from the false positive above.
-- **CI** — the index check matches the file name as a fixed string (`grep -F`). It was
-  treated as a regex, so the dots in a file name were wildcards.
+- **`service-connection-provisioning`** — an SSH private key is no longer copied into the
+  Service Connection's `data` bag. `data` is returned in clear text by
+  `GET _apis/serviceendpoint/endpoints` to every identity with read access to the project,
+  so a key written there was readable by anyone who could read the endpoint, and appeared
+  in any inventory built from an endpoint read. The key is now sent only as
+  `authorization.parameters.privateKey`, which GET never returns. Connections created
+  before this change should have their keys rotated, because the old key was exposed for
+  as long as the connection has existed.
+
+### Added
+
+- **Foundation** — `New-AdoSshServiceEndpointPayload`, the Service Connection request body
+  as a pure function. Split out of `New-AdoSshServiceEndpoint` so credential placement can
+  be asserted without a round trip; seven tests cover it, one of which renders the whole
+  payload with `authorization` removed and fails if a credential appears anywhere in the
+  remainder.
+
+`plan` output is unchanged for unchanged input: the change affects only the request body
+sent by `apply`.
 
 ## [1.0.0] - 2026-01
 
