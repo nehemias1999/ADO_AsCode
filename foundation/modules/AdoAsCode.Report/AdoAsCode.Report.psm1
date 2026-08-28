@@ -24,7 +24,33 @@ $ErrorActionPreference = 'Stop'
 # Property names whose values are replaced before a report is written. Matching is
 # on the name, not the value, so a credential is redacted even when it does not
 # look like one.
-$script:SensitivePropertyPattern = '(?i)(password|passwd|pwd|secret|token|apikey|api_key|privatekey|private_key|credential|authorization|pat)'
+#
+# The pattern is built in two halves, because a single unanchored alternation is
+# wrong in both directions at once.
+#
+# Long, unambiguous tokens match anywhere in the name. Case-insensitivity is what
+# makes these cover camelCase too: 'sshkey' matches 'sshKey'.
+$script:SensitiveNameFragment = @(
+    'password', 'passwd', 'pwd', 'passphrase'
+    'secret', 'credential', 'token', 'authorization'
+    'apikey', 'api_key', 'accesskey', 'privatekey', 'private_key', 'sshkey', 'signingkey', 'keymaterial'
+    'connectionstring', 'connstr', 'signature'
+) -join '|'
+
+# Short tokens that are also common substrings of innocent words. These match only
+# as a whole word or a whole underscore/dash-delimited segment.
+#
+# 'pat' is the reason this split exists. Unanchored, it matched 'areaPaths',
+# 'iterationPaths', 'reportPath', 'patch' and 'compatible' - so every
+# team-provisioning inventory report silently replaced its Area Path and Iteration
+# Path inventory, the very data the report exists to carry, with the redaction
+# marker. Redaction that destroys evidence is not failing safe; it is failing
+# quietly, which is worse.
+$script:SensitiveNameSegment = @(
+    'pat', 'key', 'sas', 'cert', 'auth', 'bearer'
+) -join '|'
+
+$script:SensitivePropertyPattern = "(?i)($($script:SensitiveNameFragment)|(?:^|[_-])(?:$($script:SensitiveNameSegment))(?:[_-]|$))"
 
 function Remove-SensitiveValue {
     <#
@@ -88,9 +114,16 @@ function Remove-SensitiveValue {
     }
 
     if ($InputObject -is [System.Collections.IEnumerable]) {
-        return @($InputObject | ForEach-Object {
+        $items = @($InputObject | ForEach-Object {
             Remove-SensitiveValue -InputObject $_ -Replacement $Replacement -Depth ($Depth - 1)
         })
+        # The leading comma is load-bearing. PowerShell enumerates a function's
+        # output, so `return @($items)` hands a single-element array back to the
+        # caller as the bare element - and a one-item list in an inventory then
+        # serialised as a string instead of an array, silently changing the shape of
+        # the evidence file. The comma wraps the array so enumeration yields it
+        # whole.
+        return , $items
     }
 
     $properties = @($InputObject.PSObject.Properties)
