@@ -10,30 +10,27 @@ breaking change to a schema is a major version, whatever the code did.
 
 ## [Unreleased]
 
-### Fixed
-
-- **Foundation** — `Remove-SensitiveValue` no longer redacts property names that merely
-  contain a sensitive substring. An unanchored `pat` matched `areaPaths`,
-  `iterationPaths`, `reportPath`, `patch` and `compatible`, so every `team-provisioning`
-  `inventory` report replaced its Area Path and Iteration Path inventory — the data the
-  report exists to carry — with `[redacted]`, silently. Short, ambiguous tokens (`pat`,
-  `key`, `sas`, `cert`, `auth`, `bearer`) now match only as a whole name or a whole
-  `_`/`-` delimited segment.
-- **Foundation** — `Remove-SensitiveValue` no longer collapses a single-element list into
-  a bare value. PowerShell enumerates a function's output, so a one-item inventory list
-  was serialised into the report as a string instead of an array, changing the shape of
-  the evidence file.
-
 ### Security
 
-- **Foundation** — redaction now also covers `passphrase`, `connectionstring`, `connstr`,
-  `sshkey`, `signingkey`, `accesskey`, `keymaterial` and `signature`. Every one of those
-  names previously passed through in clear text, so a Variable Group secret named
-  `SFTP_KEY` or `DB_CONNSTR` had its resolved value written to `artifacts/`.
+- **`service-connection-provisioning`** — an SSH private key is no longer copied into the
+  Service Connection's `data` bag. `data` is returned in clear text by
+  `GET _apis/serviceendpoint/endpoints` to every identity with read access to the project,
+  so a key written there was readable by anyone who could read the endpoint, and appeared
+  in any inventory built from an endpoint read. The key is now sent only as
+  `authorization.parameters.privateKey`, which GET never returns. Connections created
+  before this change should have their keys rotated, because the old key was exposed for
+  as long as the connection has existed.
 
-Report content changes for the better: paths that were `[redacted]` now appear, and
-credential-named fields that appeared now do not. `plan` output is otherwise unchanged
-for unchanged input.
+### Added
+
+- **Foundation** — `New-AdoSshServiceEndpointPayload`, the Service Connection request body
+  as a pure function. Split out of `New-AdoSshServiceEndpoint` so credential placement can
+  be asserted without a round trip; seven tests cover it, one of which renders the whole
+  payload with `authorization` removed and fails if a credential appears anywhere in the
+  remainder.
+
+`plan` output is unchanged for unchanged input: the change affects only the request body
+sent by `apply`.
 
 ## [1.0.0] - 2026-01
 
