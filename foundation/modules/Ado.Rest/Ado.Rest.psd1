@@ -13,6 +13,7 @@
         'Get-AdoContext',
         'Get-RequiredEnvironmentVariable',
         'New-AdoUri',
+        'New-AdoRequestParameter',
         'Invoke-AdoRest',
         'Invoke-AdoRestPaged',
         'Get-AdoProject',

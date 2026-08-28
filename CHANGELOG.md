@@ -43,8 +43,19 @@ breaking change to a schema is a major version, whatever the code did.
   to `attacker.example`, while the `Identity` requests went to the real service, so the
   run partly succeeded and looked legitimate.
 
+- **Foundation** — no request follows a redirect while carrying the credential.
+  `MaximumRedirection` is now 0 on both `Invoke-AdoRest` and the paged reader. Windows
+  PowerShell 5.1 — the support floor declared in every manifest — forwards
+  caller-supplied headers verbatim across a redirect, cross-origin included, and has no
+  `-PreserveAuthorizationOnRedirect` to disable it, so any 3xx from a captive portal or
+  a misconfigured gateway was handed the Personal Access Token. A redirect is not an
+  expected answer from this API.
+
 ### Fixed
 
+- **Foundation** — every request is bounded by `-TimeoutSec`. There was no timeout on
+  either call, so an unresponsive endpoint parked an `apply` indefinitely with nothing
+  to observe.
 - **Foundation** — `Remove-SensitiveValue` no longer redacts property names that merely
   contain a sensitive substring. An unanchored `pat` matched `areaPaths`,
   `iterationPaths`, `reportPath`, `patch` and `compatible`, so every `team-provisioning`
@@ -70,6 +81,12 @@ breaking change to a schema is a major version, whatever the code did.
 
 ### Added
 
+- **Foundation** — `New-AdoRequestParameter`, the request splat as a pure function, so
+  the redirect and timeout protections are covered by a test instead of trusted. Both are
+  invisible when missing: a request with neither behaves normally against a healthy
+  service.
+- **Tests** — `tests/foundation/Ado.Rest.RequestParameters.Tests.ps1`, six cases,
+  including one asserting both protections survive on the body-carrying branch.
 - **Foundation** — `Assert-AdoOrganizationUrl`, exported so a caller can validate a URL
   before building a context.
 - **Tests** — `tests/foundation/Ado.Rest.Tests.ps1`, the first tests for `Ado.Rest`.
