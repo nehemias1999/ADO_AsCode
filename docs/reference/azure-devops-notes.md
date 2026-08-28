@@ -205,3 +205,19 @@ unconditionally, and do not treat the first failure as fatal.
 Compile with the preview API — `POST /_apis/pipelines/{id}/preview` with
 `previewRun: true` — to get the fully resolved YAML without executing anything. It is
 the cheapest way to prove a template change compiles across many pipelines.
+
+## Retry policy
+
+| Rule | Why |
+| --- | --- |
+| Only `GET`, `PUT` and `DELETE` are retried | `POST` creates. A `502` or `504` arriving from a gateway *after* the server committed, followed by a retry, produces a duplicate Team, security group, Variable Group or Service Connection — and a duplicate is the condition this repository treats as **blocking** everywhere else. |
+| A failure with **no** HTTP status is retried | DNS failure, TLS reset, connection reset, timeout. These are the most transient failures there are, and they were the ones excluded, while `500` — which may well have committed server-side — was retried. |
+| `408`, `429`, `500`, `502`, `503`, `504` are retried | Everything else is a real answer. Retrying a `400` or a `409` only multiplies the damage. |
+| `Retry-After` is honoured but capped at 120s | A service or an intercepting proxy answering `Retry-After: 999999` would otherwise park the run in `Start-Sleep` for eleven days. |
+
+When a transient failure lands on a `POST`, the error says so explicitly rather than
+looking like a hard failure — and says what to do: re-run the command. The plan is
+computed from live state, so an operation that already succeeded shows as `ok`.
+
+`Get-AdoRetryDecision` is a pure function over (method, status, `Retry-After`, attempt),
+so the policy is asserted by tests rather than inferred from reading the loop.

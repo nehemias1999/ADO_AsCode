@@ -10,6 +10,29 @@ breaking change to a schema is a major version, whatever the code did.
 
 ## [Unreleased]
 
+### Fixed
+
+- **Foundation** — `POST` is no longer retried. The retry loop was method-agnostic, so a
+  `502` or `504` arriving after the server had committed produced a duplicate Team,
+  security group, Variable Group or Service Connection on the retry — and a duplicate is
+  precisely what `Ado.Identity` and `Ado.Library` treat as a blocking condition. The
+  resilience mechanism manufactured the one state the design refuses to guess about.
+- **Foundation** — a failure carrying **no** HTTP status is now retried. DNS failures,
+  TLS resets and timeouts are the most transient failures there are and were classified
+  non-retryable, while `500` was retried. `408` is added to the retryable set.
+- **Foundation** — an honoured `Retry-After` is capped at 120 seconds. A service or proxy
+  answering `Retry-After: 999999` parked the run in `Start-Sleep` for eleven days.
+- **Foundation** — when a transient failure lands on a `POST`, the error now says the
+  retry was declined deliberately and that re-running is safe, rather than reading as a
+  hard failure.
+
+### Added
+
+- **Foundation** — `Get-AdoRetryDecision`, the retry policy as a pure function over
+  (method, status, `Retry-After`, attempt), with ten tests. The policy was previously only
+  inferable by reading the loop.
+- **Docs** — `docs/reference/azure-devops-notes.md` gains a retry policy section.
+
 ### Security
 
 - **`variable-group-configuration`** — a Variable Group secret is now resolved from an

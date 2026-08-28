@@ -26,7 +26,20 @@ $script:DefaultApiVersion = '7.1'
 # Transient HTTP status codes. 429 is throttling; the 5xx set is Azure DevOps
 # shedding load. Anything else is a real answer and must not be retried, because
 # retrying a 400 or a 409 only multiplies the damage.
-$script:RetryableStatusCodes = @(429, 500, 502, 503, 504)
+$script:RetryableStatusCodes = @(408, 429, 500, 502, 503, 504)
+
+# Methods that may be retried. A retry is only safe when repeating the request cannot
+# create a second resource, and POST creates. A 502 or 504 from a gateway AFTER the
+# server committed, followed by a retry, produces a duplicate Team, group, Variable
+# Group or Service Connection - and a duplicate is precisely the condition this
+# repository treats as blocking elsewhere (Ado.Identity, Ado.Library). So the retry that
+# was meant to add resilience manufactured the one state the design refuses to guess
+# about.
+$script:IdempotentMethods = @('Get', 'Put', 'Delete')
+
+# Upper bound on an honoured Retry-After. Without it, a server or an intercepting proxy
+# answering 'Retry-After: 999999' parks the run in Start-Sleep for eleven days.
+$script:MaximumRetryDelaySeconds = 120
 
 # Upper bound on a single request. Azure DevOps answers well inside this; the point
 # is that an unresponsive endpoint cannot park an apply forever.
@@ -440,6 +453,81 @@ function New-AdoRequestParameter {
     return $parameters
 }
 
+function Get-AdoRetryDecision {
+    <#
+    .SYNOPSIS
+        Decides whether a failed request may be retried, and after how long.
+
+    .DESCRIPTION
+        A pure function over (method, status, Retry-After, attempt), so the policy can
+        be asserted rather than inferred from reading the loop. Three rules, each of
+        which was wrong before this function existed:
+
+        1. Only GET, PUT and DELETE are retried. POST creates, so a 502 arriving after
+           the server committed, followed by a retry, produces a duplicate - the exact
+           condition the rest of the codebase treats as blocking.
+        2. A failure with NO status is retried. DNS failures, TLS resets and timeouts
+           carry no HTTP status and are the most transient failures there are; they
+           were the ones excluded, while 500 was retried.
+        3. An honoured Retry-After is capped. 'Retry-After: 999999' otherwise parks the
+           run for eleven days.
+
+    .PARAMETER Method
+        HTTP method of the failed request.
+
+    .PARAMETER StatusCode
+        HTTP status, or $null for a transport-level failure.
+
+    .PARAMETER RetryAfterSeconds
+        Seconds requested by the service, or 0 when it did not ask.
+
+    .PARAMETER Attempt
+        1-based attempt number that just failed.
+
+    .PARAMETER MaximumAttempts
+        Total attempts allowed.
+
+    .EXAMPLE
+        Get-AdoRetryDecision -Method Get -StatusCode 429 -RetryAfterSeconds 5 -Attempt 1 -MaximumAttempts 4
+
+    .OUTPUTS
+        PSCustomObject with ShouldRetry, DelaySeconds and Reason.
+    #>
+    # Pure function: it computes a value and changes no system state. ShouldProcess
+    # would offer a confirmation prompt for something there is nothing to confirm
+    # about, and would train people to answer yes.
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '')]
+    [CmdletBinding()]
+    [OutputType([pscustomobject])]
+    param(
+        [Parameter(Mandatory)] [ValidateSet('Get', 'Post', 'Put', 'Patch', 'Delete')] [string] $Method,
+        [AllowNull()] [System.Nullable[int]] $StatusCode,
+        [int] $RetryAfterSeconds = 0,
+        [Parameter(Mandatory)] [int] $Attempt,
+        [Parameter(Mandatory)] [int] $MaximumAttempts
+    )
+
+    $isIdempotent = $script:IdempotentMethods -contains $Method
+    $isTransport = $null -eq $StatusCode
+    $isRetryableStatus = $isTransport -or ($script:RetryableStatusCodes -contains $StatusCode)
+    $isLastAttempt = $Attempt -ge $MaximumAttempts
+
+    $delaySeconds = [int][Math]::Pow(2, $Attempt - 1)
+    if ($RetryAfterSeconds -gt 0) { $delaySeconds = $RetryAfterSeconds }
+    $delaySeconds = [int][Math]::Min($delaySeconds, $script:MaximumRetryDelaySeconds)
+
+    $reason = ''
+    if (-not $isRetryableStatus) { $reason = "HTTP $StatusCode is a real answer, not a transient failure." }
+    elseif (-not $isIdempotent) { $reason = "$Method is not retried: repeating it could create a duplicate." }
+    elseif ($isLastAttempt) { $reason = "Attempt $Attempt of $MaximumAttempts was the last." }
+
+    return [pscustomobject]@{
+        ShouldRetry  = ($isRetryableStatus -and $isIdempotent -and -not $isLastAttempt)
+        DelaySeconds = $delaySeconds
+        Reason       = $reason
+    }
+}
+
 function Invoke-AdoRest {
     <#
     .SYNOPSIS
@@ -512,21 +600,27 @@ function Invoke-AdoRest {
             $statusCode = Get-AdoErrorStatusCode -ErrorRecord $_
             if ($AllowNotFound -and $statusCode -eq 404) { return $null }
 
-            $isLastAttempt = $attempt -ge $MaximumAttempts
-            $isRetryable = $null -ne $statusCode -and ($script:RetryableStatusCodes -contains $statusCode)
+            $decision = Get-AdoRetryDecision -Method $Method -StatusCode $statusCode `
+                -RetryAfterSeconds (Get-AdoRetryAfterSeconds -ErrorRecord $_) `
+                -Attempt $attempt -MaximumAttempts $MaximumAttempts
 
-            if ($isRetryable -and -not $isLastAttempt) {
-                $delaySeconds = [Math]::Pow(2, $attempt - 1)
-                $retryAfter = Get-AdoRetryAfterSeconds -ErrorRecord $_
-                if ($retryAfter -gt 0) { $delaySeconds = $retryAfter }
-                Write-Verbose "Azure DevOps returned $statusCode for $Method $Uri. Retrying in $delaySeconds second(s) (attempt $attempt of $MaximumAttempts)."
-                Start-Sleep -Seconds $delaySeconds
+            if ($decision.ShouldRetry) {
+                Write-Verbose "Azure DevOps returned $statusCode for $Method $Uri. Retrying in $($decision.DelaySeconds) second(s) (attempt $attempt of $MaximumAttempts)."
+                Start-Sleep -Seconds $decision.DelaySeconds
                 continue
             }
 
             $detail = Get-AdoErrorDetail -ErrorRecord $_
             $statusText = if ($null -eq $statusCode) { 'no status' } else { "HTTP $statusCode" }
-            throw (Remove-SecretFromText -Text "Azure DevOps request failed: $Method $Uri returned $statusText. $detail")
+
+            # Say so explicitly. Otherwise a transient failure on a POST looks like a
+            # hard failure, and the operator has no way to know a retry was declined
+            # deliberately rather than not attempted.
+            $note = ''
+            if ($decision.Reason -like '*could create a duplicate*') {
+                $note = " $($decision.Reason) Re-run the command - the plan is computed from live state, so an operation that already succeeded will show as ok."
+            }
+            throw (Remove-SecretFromText -Text "Azure DevOps request failed: $Method $Uri returned $statusText. $detail$note")
         }
     }
 }
@@ -770,6 +864,7 @@ Export-ModuleMember -Function @(
     'Get-AdoContext',
     'Get-RequiredEnvironmentVariable',
     'New-AdoUri',
+    'Get-AdoRetryDecision',
     'New-AdoRequestParameter',
     'Invoke-AdoRest',
     'Invoke-AdoRestPaged',
