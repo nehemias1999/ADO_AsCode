@@ -726,12 +726,102 @@ function New-AdoSshServiceEndpoint {
 
     if (-not $PSCmdlet.ShouldProcess($Name, 'Create SSH Service Connection')) { return }
 
+    $body = New-AdoSshServiceEndpointPayload -Project $Project -Name $Name -ServerHost $ServerHost `
+        -Port $Port -Username $Username -Password $Password -PrivateKey $PrivateKey `
+        -Description $Description -Sentinel $Sentinel
+
+    $uri = New-AdoUri -Context $Context -Path '_apis/serviceendpoint/endpoints' -IncludeProject
+    return Invoke-AdoRest -Context $Context -Method Post -Uri $uri -Body $body
+}
+
+function New-AdoSshServiceEndpointPayload {
+    <#
+    .SYNOPSIS
+        Builds the request body for an SSH/SFTP Service Connection.
+
+    .DESCRIPTION
+        Split out from New-AdoSshServiceEndpoint so the credential placement is a
+        pure function over its inputs, and can therefore be asserted without a round
+        trip. What goes where is the whole safety question here, and it was wrong
+        before this function existed.
+
+        Azure DevOps treats the two bags in this payload differently:
+
+        - `authorization.parameters` is write-only. GET never returns it.
+        - `data` is metadata and comes straight back on
+          `GET _apis/serviceendpoint/endpoints`, in clear text, to every identity
+          with read access to the project.
+
+        So credential material belongs in `authorization.parameters` and nowhere
+        else. A private key written into `data` stops being a secret the moment it
+        is written, and lands in any inventory built from an endpoint read.
+
+        Authentication is chosen from what the caller can actually supply, in this
+        order: private key, then password, then the sentinel. The private key field
+        is omitted entirely when there is no key, rather than sent empty - an empty
+        PrivateKey declares a certificate slot Azure DevOps keeps, and that slot then
+        has to be filled before the connection works.
+
+    .PARAMETER Project
+        Project object from Get-AdoProject.
+
+    .PARAMETER Name
+        Connection name.
+
+    .PARAMETER ServerHost
+        Target host name.
+
+    .PARAMETER Port
+        Target port.
+
+    .PARAMETER Username
+        Login user name.
+
+    .PARAMETER Password
+        Login password. Ignored when PrivateKey is supplied.
+
+    .PARAMETER PrivateKey
+        Private key material.
+
+    .PARAMETER Description
+        Connection description.
+
+    .PARAMETER Sentinel
+        Placeholder used when neither a password nor a key is available.
+
+    .EXAMPLE
+        New-AdoSshServiceEndpointPayload -Project $project -Name 'SFTP_APP_ALPHA_DEV' `
+            -ServerHost 'sftp-dev-01.example.invalid' -Username 'svc_deploy'
+
+    .OUTPUTS
+        Hashtable, ready to POST.
+    #>
+    # Pure function: it computes a value and changes no system state. ShouldProcess
+    # would offer a confirmation prompt for something there is nothing to confirm
+    # about, and would train people to answer yes.
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '')]
+    [CmdletBinding()]
+    [OutputType([hashtable])]
+    param(
+        [Parameter(Mandatory)] [object] $Project,
+        [Parameter(Mandatory)] [string] $Name,
+        [Parameter(Mandatory)] [string] $ServerHost,
+        [int] $Port = 22,
+        [Parameter(Mandatory)] [string] $Username,
+        [string] $Password,
+        [string] $PrivateKey,
+        [string] $Description = '',
+        [string] $Sentinel = $script:DefaultSentinel
+    )
+
     $authorizationParameters = @{ username = $Username }
+
+    # Host and Port only. Nothing added here may be a credential: this bag is
+    # readable by anyone who can read the endpoint.
     $data = @{ Host = $ServerHost; Port = "$Port" }
 
     if (-not [string]::IsNullOrWhiteSpace($PrivateKey)) {
         $authorizationParameters.privateKey = $PrivateKey
-        $data.PrivateKey = $PrivateKey
     }
     elseif (-not [string]::IsNullOrWhiteSpace($Password)) {
         $authorizationParameters.password = $Password
@@ -740,8 +830,7 @@ function New-AdoSshServiceEndpoint {
         $authorizationParameters.password = $Sentinel
     }
 
-    $uri = New-AdoUri -Context $Context -Path '_apis/serviceendpoint/endpoints' -IncludeProject
-    return Invoke-AdoRest -Context $Context -Method Post -Uri $uri -Body @{
+    return @{
         name                             = $Name
         type                             = 'ssh'
         url                              = "ssh://${ServerHost}:$Port"
@@ -844,5 +933,6 @@ Export-ModuleMember -Function @(
     'Rename-AdoVariableGroup',
     'Get-AdoServiceEndpoint',
     'New-AdoSshServiceEndpoint',
+    'New-AdoSshServiceEndpointPayload',
     'Get-AdoServiceEndpointStatus'
 )

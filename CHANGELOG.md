@@ -10,7 +10,27 @@ breaking change to a schema is a major version, whatever the code did.
 
 ## [Unreleased]
 
-Nothing yet.
+### Security
+
+- **`service-connection-provisioning`** — an SSH private key is no longer copied into the
+  Service Connection's `data` bag. `data` is returned in clear text by
+  `GET _apis/serviceendpoint/endpoints` to every identity with read access to the project,
+  so a key written there was readable by anyone who could read the endpoint, and appeared
+  in any inventory built from an endpoint read. The key is now sent only as
+  `authorization.parameters.privateKey`, which GET never returns. Connections created
+  before this change should have their keys rotated, because the old key was exposed for
+  as long as the connection has existed.
+
+### Added
+
+- **Foundation** — `New-AdoSshServiceEndpointPayload`, the Service Connection request body
+  as a pure function. Split out of `New-AdoSshServiceEndpoint` so credential placement can
+  be asserted without a round trip; seven tests cover it, one of which renders the whole
+  payload with `authorization` removed and fails if a credential appears anywhere in the
+  remainder.
+
+`plan` output is unchanged for unchanged input: the change affects only the request body
+sent by `apply`.
 
 ## [1.0.0] - 2026-01
 
