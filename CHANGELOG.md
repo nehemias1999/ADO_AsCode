@@ -12,6 +12,44 @@ breaking change to a schema is a major version, whatever the code did.
 
 ### Security
 
+- **`variable-group-configuration`** — a Variable Group secret is now resolved from an
+  **environment-qualified** variable: the secret `APP_SERVER_PASSWORD` in the PROD group
+  reads `APP_SERVER_PASSWORD_PROD`. Previously it read the bare `APP_SERVER_PASSWORD`, and
+  since the group name carries the environment while the secret's name does not — and the
+  live value can never be read back to compare — a stale or DEV-valued
+  `APP_SERVER_PASSWORD` in `.env` was written over the **PROD** credential by any `apply`
+  that touched a non-secret key in that group. The API reported success and nothing could
+  detect it afterwards. Pass `-AllowUnqualifiedSecretName` for a credential genuinely
+  shared across environments; the qualified name still wins when both are set.
+- **Foundation** — `isSecret` is compared against `$true` instead of cast with `[bool]`.
+  In PowerShell `[bool]'false'` is `$true`, so a platform response carrying
+  `"isSecret": "false"` would have been read as secret; the inverse — a secret misread as
+  non-secret — copies its masked live value into the payload, and the `PUT` writes the
+  mask over the credential. This is the one cast here whose failure mode is credential
+  destruction.
+
+### Fixed
+
+- **Docs** — four documents claimed the sentinel was the only value ever overwritten, or
+  that the module "never writes a secret value". Both were false for the secret re-post
+  path. `SECURITY.md`, `AGENTS.md`, `docs/reference/security-model.md` and
+  `docs/guides/variable-group-configuration.md` now separate the non-secret rule (the
+  sentinel) from the secret rule (environment-qualified resolution), and the guide's
+  rollback table no longer says a re-posted secret is "the value already in effect" — it
+  is whatever the environment held.
+- **Docs** — `.env.example` declares `APP_SERVER_PASSWORD_DEV|QA|PROD`. The one variable
+  able to destroy a production credential was absent from the template that is supposed to
+  be the credential checklist.
+- **Docs** — `docs/process/risk-register.md` gains risk 6b. Risks 6 to 9 covered the
+  *blanking* direction only; silent *replacement* was missing entirely.
+
+**Breaking:** an existing `.env` using bare secret names will now block instead of
+writing. Either rename each to `<NAME>_<ENVIRONMENT>`, or pass
+`-AllowUnqualifiedSecretName`. Blocking is the intended behaviour, not a regression: the
+previous run may have been writing the wrong value.
+
+### Security
+
 - **Pipelines** — queue-time parameters no longer reach a script body as template
   expressions. A template expression is expanded at compile time, so interpolating a
   free-text parameter into a script pastes the value in as source code; `applicationKey`,

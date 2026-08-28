@@ -29,7 +29,8 @@ and that is in the configuration.
 | `apply` refuses a plan with any blocked operation. | `Assert-PlanApplicable` |
 | Writing requires an explicit confirmation switch. | Every entry point |
 | Configuration declares a secret **name**, never a value. | Schemas, plus the sensitive data gate |
-| The only value overwritten is `PENDING_OWNER_CONFIGURATION`. | `Get-AdoVariableGroupUpdate` |
+| The only **non-secret** value overwritten is `PENDING_OWNER_CONFIGURATION`. | `Get-AdoVariableGroupUpdate` |
+| A **secret** is re-posted only from an environment-qualified variable. | `Get-AdoVariableGroupSecretSource` |
 | A write to a group with secrets re-posts them, or is refused. | `New-AdoVariableGroupPayload` |
 | The shared layer carries no domain rules. | Review, and [ADR 0004](docs/adr/0004-shared-foundation-without-domain-rules.md) |
 
