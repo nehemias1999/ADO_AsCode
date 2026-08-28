@@ -34,6 +34,15 @@ breaking change to a schema is a major version, whatever the code did.
   `Import-Module` in `foundation/Import-Foundation.ps1`. Both refusals throw rather than
   skip the line, so a run cannot proceed with a half-loaded environment.
 
+- **Foundation** — the organization URL is validated before the Personal Access Token is
+  aimed at it. `https` is now required, and the host must be `dev.azure.com`, a
+  `*.visualstudio.com` host, or one named explicitly in `-AllowedHost`. Previously only
+  the last path segment was checked, so `http://` was accepted (putting the token on the
+  network in clear text) and so was `https://attacker.example/dev.azure.com/contoso` —
+  which resolved to organization `contoso` and sent every `Core` request, token attached,
+  to `attacker.example`, while the `Identity` requests went to the real service, so the
+  run partly succeeded and looked legitimate.
+
 ### Fixed
 
 - **Foundation** — `Remove-SensitiveValue` no longer redacts property names that merely
@@ -61,11 +70,20 @@ breaking change to a schema is a major version, whatever the code did.
 
 ### Added
 
+- **Foundation** — `Assert-AdoOrganizationUrl`, exported so a caller can validate a URL
+  before building a context.
+- **Tests** — `tests/foundation/Ado.Rest.Tests.ps1`, the first tests for `Ado.Rest`.
+  Sixteen cases covering URL validation, organization-name derivation, Basic header
+  construction and `Remove-SecretFromText` — the last of which
+  `docs/process/risk-register.md` credits as a control and which had no test at all.
 - **Foundation** — `New-AdoSshServiceEndpointPayload`, the Service Connection request body
   as a pure function. Split out of `New-AdoSshServiceEndpoint` so credential placement can
   be asserted without a round trip; seven tests cover it, one of which renders the whole
   payload with `authorization` removed and fails if a credential appears anywhere in the
   remainder.
+
+**Breaking for on-premises users:** an Azure DevOps Server URL now requires
+`-AllowedHost`. Azure DevOps Services URLs are unaffected.
 
 Report content changes for the better: paths that were `[redacted]` now appear, and
 credential-named fields that appeared now do not. `plan` output is otherwise unchanged
