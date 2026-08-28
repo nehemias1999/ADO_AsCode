@@ -18,6 +18,24 @@
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
+# Environment variables a .env file may never set. Each one changes where the
+# interpreter finds code or executables, so allowing a configuration file to set it
+# turns .env into a code execution path. Compared case-insensitively, because the
+# Windows environment is case-insensitive.
+$script:ProtectedEnvironmentNames = @(
+    'PSModulePath'
+    'PSExecutionPolicyPreference'
+    'PSHOME'
+    'Path'
+    'PATHEXT'
+    'ComSpec'
+    'DOTNET_STARTUP_HOOKS'
+    'DOTNET_ADDITIONAL_DEPS'
+    'COREHOST_TRACE'
+    'LD_PRELOAD'
+    'LD_LIBRARY_PATH'
+)
+
 function Import-AdoAsCodeEnvironment {
     <#
     .SYNOPSIS
@@ -32,6 +50,16 @@ function Import-AdoAsCodeEnvironment {
 
         Blank lines and lines starting with '#' are ignored. Surrounding single or
         double quotes are stripped so a value with trailing spaces can be expressed.
+
+        A variable name must match ^[A-Za-z_][A-Za-z0-9_]*$, and a small set of names
+        that steer the interpreter - PSModulePath, Path, PSExecutionPolicyPreference,
+        DOTNET_STARTUP_HOOKS and similar - is refused outright. A .env file is
+        operator-edited, unsigned and unhashed, and this function writes what it names
+        into the process environment, so without that constraint the file is a code
+        execution path: PSModulePath=\somewhere\share would be honoured by the next
+        Import-Module. Both refusals throw rather than skip, because a silently ignored
+        line in a credential file is how a run proceeds without the credential it
+        needed.
 
     .PARAMETER Path
         One or more file paths. A single value may contain comma-separated paths.
@@ -79,6 +107,25 @@ function Import-AdoAsCodeEnvironment {
 
             $name = $Matches[1].Trim()
             $value = $Matches[2].Trim()
+
+            # A .env file is operator-edited, unsigned and unhashed, and this loop
+            # writes whatever it names straight into the process environment. Without
+            # a constraint on the name that is a code execution path, not just a
+            # configuration one: a line reading
+            #
+            #     PSModulePath=\somewhere\share
+            #
+            # is applied verbatim, and the next Import-Module in
+            # foundation/Import-Foundation.ps1 resolves modules from it.
+            #
+            # So the name has to look like an environment variable, and must not be
+            # one that steers the interpreter.
+            if ($name -notmatch '^[A-Za-z_][A-Za-z0-9_]*$') {
+                throw "Invalid variable name '$name' in '$file'. A name must start with a letter or underscore and contain only letters, digits and underscores."
+            }
+            if ($script:ProtectedEnvironmentNames -contains $name) {
+                throw "Refusing to set '$name' from '$file'. That variable controls how PowerShell loads code or resolves executables, so a configuration file is not allowed to change it."
+            }
             if ($value.Length -ge 2) {
                 $first = $value[0]
                 $last = $value[$value.Length - 1]

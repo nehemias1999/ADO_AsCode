@@ -10,7 +10,21 @@ breaking change to a schema is a major version, whatever the code did.
 
 ## [Unreleased]
 
-Nothing yet.
+### Security
+
+- **Foundation** — `Import-AdoAsCodeEnvironment` validates the *name* of every variable
+  it loads. A name must match `^[A-Za-z_][A-Za-z0-9_]*$`, and the names that steer the
+  interpreter (`PSModulePath`, `Path`, `PSExecutionPolicyPreference`, `PSHOME`,
+  `PATHEXT`, `ComSpec`, `DOTNET_STARTUP_HOOKS`, `DOTNET_ADDITIONAL_DEPS`, `LD_PRELOAD`,
+  `LD_LIBRARY_PATH`) are refused. Previously any name was accepted, which made `.env` a
+  code execution path rather than a configuration one: a line reading
+  `PSModulePath=\somewhere\share` was applied verbatim and honoured by the next
+  `Import-Module` in `foundation/Import-Foundation.ps1`.
+
+Both refusals throw rather than skip the line, so a run cannot proceed with a
+half-loaded environment. Four tests cover it, including the case-insensitive match —
+the Windows environment is case-insensitive, so a denylist that was not would be
+decorative.
 
 ## [1.0.0] - 2026-01
 
