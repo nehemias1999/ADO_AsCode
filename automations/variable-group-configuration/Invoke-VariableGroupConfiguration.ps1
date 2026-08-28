@@ -94,6 +94,10 @@ param(
 )
 
 Set-StrictMode -Version Latest
+
+# Commands that write. Naming them once keeps the -ApplicationKey requirement and the
+# confirmation gate from drifting apart as verbs are added.
+$script:WritingCommands = @('apply')
 $ErrorActionPreference = 'Stop'
 
 $moduleName = 'variable-group-configuration'
@@ -758,6 +762,19 @@ if ($Command -eq 'validate') {
 if ($csv.errors.Count -gt 0) {
     $detail = ($csv.errors | ForEach-Object { "  - $_" }) -join [Environment]::NewLine
     throw "The values file does not satisfy the scope. Run 'validate' to fix it before touching Azure DevOps:$([Environment]::NewLine)$detail"
+}
+
+# A writing verb is narrowed to one application. Without this, 'apply -ConfirmApply'
+# with no key applied to every application in scope multiplied by every environment -
+# six Variable Groups in the shipped example, PROD included, behind a single
+# confirmation. docs/reference/command-model.md already promised the opposite, and
+# the blast-radius argument in docs/overview/scope-and-limits.md depends on it.
+#
+# Checked before the environment file is read and before any network call, so the
+# refusal costs nothing and needs no credentials - which is also what lets a test
+# cover it offline.
+if ($Command -in $script:WritingCommands -and -not $ApplicationKey) {
+    throw "-ApplicationKey is required by '$Command'. It is what keeps one run to one application. In scope: $(@($scope.applications) -join ', ')."
 }
 
 Import-AdoAsCodeEnvironment -Path $EnvFile | Out-Null

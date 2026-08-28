@@ -132,14 +132,28 @@ A silent cap reads as full coverage. This one is never silent.
 
 | Parameter | Effect |
 | --- | --- |
-| `-ApplicationKey` | One application. **Required** by every writing verb. |
+| `-ApplicationKey` | One application. **Required** by every writing verb, and enforced before any credential is read. |
 | `-Environment` | One environment, where the module has environments. |
 | `-ConfigurationPath`, `-ScopePath`, `-CsvPath`, `-BoardColumnsPath` | Override a declaration file. |
 | `-ReportPath` | Override where evidence is written. |
 | `-EnvFile` | One or more environment files, comma or list separated. |
 
-`inventory` and `plan` may cover the whole scope. Only writing is narrowed to one
+Which verbs require it, per module — the table above states the rule, this states the
+enforcement:
+
+| Module | Requires `-ApplicationKey` | Does not |
+| --- | --- | --- |
+| `team-provisioning` | `plan`, `smoke`, `apply`, `reconcile`, `rename` | `validate`, `inventory` |
+| `variable-group-configuration` | `apply` | `validate`, `inventory`, `plan`, `smoke` |
+| `service-connection-provisioning` | `apply` | `validate`, `inventory`, `plan`, `smoke` |
+
+`inventory` may cover the whole scope, and in the two environment-aware modules so may
+`plan` — surveying everything is the point of a read. Writing is narrowed to one
 application, which is what keeps a plan readable and a failure attributable.
+
+The check runs **before** the environment file is read and before the first request, so
+a missing argument is reported as a missing argument rather than as a missing `.env`, and
+no token is read on the way to refusing.
 
 ## 7. Exit behaviour
 

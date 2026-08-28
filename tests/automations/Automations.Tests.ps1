@@ -155,3 +155,49 @@ Describe 'Offline validate' {
         }
     }
 }
+
+Describe 'Blast radius of a writing verb' {
+
+    It 'every automation refuses apply without -ApplicationKey' {
+        # docs/reference/command-model.md states that -ApplicationKey is "Required by
+        # every writing verb", and the blast-radius argument in
+        # docs/overview/scope-and-limits.md ("One application per apply") rests on it.
+        # Two of the three did not enforce it: -ApplicationKey was a plain filter, so
+        # 'apply -ConfirmApply' with no key wrote to every application in scope times
+        # every environment - six Variable Groups in the shipped example, PROD
+        # included, behind one confirmation.
+        #
+        # This asserts behaviour by invoking the entry point, rather than grepping the
+        # file for a substring the way the contract test above does. The refusal
+        # happens before any credential is read, so the assertion needs no network and
+        # no token.
+        foreach ($variable in @('ADO_PAT', 'ADO_ORG_URL', 'ADO_PROJECT')) {
+            [Environment]::SetEnvironmentVariable($variable, $null, 'Process')
+        }
+
+        foreach ($automation in $script:automations) {
+            $path = Join-Path (Get-RepositoryRoot) "automations/$($automation.Name)/$($automation.EntryPoint)"
+
+            { & $path -Command apply -ConfirmApply -InformationAction SilentlyContinue } |
+                Should -Throw -ExpectedMessage '*-ApplicationKey is required*' `
+                    -Because "$($automation.Name) apply must be narrowed to one application"
+        }
+    }
+
+    It 'the refusal names the applications that are actually declared' {
+        # An error that says what to pass next costs one line and saves a round trip.
+        foreach ($variable in @('ADO_PAT', 'ADO_ORG_URL', 'ADO_PROJECT')) {
+            [Environment]::SetEnvironmentVariable($variable, $null, 'Process')
+        }
+
+        foreach ($automation in $script:automations) {
+            $path = Join-Path (Get-RepositoryRoot) "automations/$($automation.Name)/$($automation.EntryPoint)"
+
+            $message = ''
+            try { & $path -Command apply -ConfirmApply -InformationAction SilentlyContinue }
+            catch { $message = "$($_.Exception.Message)" }
+
+            $message | Should -BeLike '*APP_ALPHA*' -Because "$($automation.Name) should name the declared keys"
+        }
+    }
+}

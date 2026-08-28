@@ -12,6 +12,32 @@ breaking change to a schema is a major version, whatever the code did.
 
 ### Security
 
+- **`variable-group-configuration`, `service-connection-provisioning`** — `apply` now
+  requires `-ApplicationKey`. In both modules the parameter was a plain filter, so
+  `apply -ConfirmApply` with no key wrote to every application in scope multiplied by
+  every environment — six Variable Groups in the shipped example, PROD included, behind a
+  single confirmation. `docs/reference/command-model.md` already stated the parameter was
+  "Required by every writing verb", and the blast-radius argument in
+  `docs/overview/scope-and-limits.md` depended on it; only `team-provisioning` enforced it.
+
+### Fixed
+
+- **All three automations** — the `-ApplicationKey` requirement is checked before the
+  environment file is read and before the first request. `team-provisioning` already had
+  the check but ran it after connecting, so a run with no key reported
+  `Environment file not found: .env` instead of the missing argument — and had already
+  read the token by the time it complained. The set of commands it applies to is
+  unchanged for `team-provisioning` (`plan`, `smoke`, `apply`, `reconcile`, `rename`).
+- **Docs** — `docs/reference/command-model.md` now states which verbs require the
+  parameter per module, rather than a blanket claim two of three modules did not meet.
+
+Residual, stated rather than left implicit: requiring `-ApplicationKey` narrows an
+`apply` to one application but **not** to one environment, so DEV, QA and PROD for that
+application remain in a single `apply`. Pass `-Environment` as well to narrow further.
+The documented contract only ever promised the application boundary.
+
+### Security
+
 - **`service-connection-provisioning`** — an SSH private key is no longer copied into the
   Service Connection's `data` bag. `data` is returned in clear text by
   `GET _apis/serviceendpoint/endpoints` to every identity with read access to the project,

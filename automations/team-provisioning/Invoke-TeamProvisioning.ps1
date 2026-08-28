@@ -107,6 +107,11 @@ param(
 )
 
 Set-StrictMode -Version Latest
+
+# Commands that operate on one declared application, so they require -ApplicationKey.
+# validate and inventory are excluded: both survey everything on purpose.
+# This is the set the previous check already enforced - it just enforced it late.
+$script:ApplicationScopedCommands = @('plan', 'smoke', 'apply', 'reconcile', 'rename')
 $ErrorActionPreference = 'Stop'
 
 $moduleName = 'team-provisioning'
@@ -1008,6 +1013,14 @@ if ($Command -eq 'validate') {
 $environmentFiles = @($EnvFile)
 $membersFile = Join-Path $PSScriptRoot 'config/members.env'
 if (Test-Path -LiteralPath $membersFile) { $environmentFiles += $membersFile }
+# One application per run, checked before the environment file is read and before any
+# network call. The check existed and covered the same commands, but ran after the
+# connection was established - so a run with no key reported a missing .env rather than
+# the missing argument, and had already read the token by the time it complained.
+if ($Command -in $script:ApplicationScopedCommands -and -not $ApplicationKey) {
+    throw "-ApplicationKey is required by '$Command'. It is what keeps one run to one application. Declared keys: $(@($configuration.applications | ForEach-Object { "$($_.key)" }) -join ', ')."
+}
+
 Import-AdoAsCodeEnvironment -Path $environmentFiles | Out-Null
 
 $context = Get-AdoContext -ProjectContext $projectContext
@@ -1047,9 +1060,6 @@ if ($Command -eq 'inventory') {
     return $plan
 }
 
-if (-not $ApplicationKey) {
-    throw "-ApplicationKey is required by '$Command'. Declared keys: $(@($configuration.applications | ForEach-Object { "$($_.key)" }) -join ', ')."
-}
 $application = Get-TeamProvisioningApplication -Configuration $configuration -Key $ApplicationKey
 
 if (-not $ReportPath) {
