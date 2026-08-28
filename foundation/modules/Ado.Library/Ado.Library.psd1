@@ -21,6 +21,7 @@
         'Rename-AdoVariableGroup',
         'Get-AdoServiceEndpoint',
         'New-AdoSshServiceEndpoint',
+        'New-AdoSshServiceEndpointPayload',
         'Get-AdoServiceEndpointStatus'
     )
     CmdletsToExport   = @()
