@@ -42,6 +42,48 @@ one path to reason about instead of two.
 None of those files is versioned. `.gitignore` excludes `.env*`, `.local/`,
 `artifacts/`, and every active configuration file created by renaming a template.
 
+### What a `.env` file is allowed to set
+
+`.env` is operator-edited, unsigned and unhashed, and `Import-AdoAsCodeEnvironment`
+writes whatever it names into the process environment. So the *name* is validated, not
+just the value:
+
+| Rule | Why |
+| --- | --- |
+| Name must match `^[A-Za-z_][A-Za-z0-9_]*$` | Anything else is not an environment variable, and accepting it hides a typo |
+| `PSModulePath`, `Path`, `PSExecutionPolicyPreference`, `PSHOME`, `PATHEXT`, `ComSpec`, `DOTNET_STARTUP_HOOKS`, `DOTNET_ADDITIONAL_DEPS`, `LD_PRELOAD`, `LD_LIBRARY_PATH` are refused | Each changes where the interpreter finds code or executables |
+
+Without the second rule a `.env` file is a **code execution** path rather than a
+configuration one: a line reading `PSModulePath=\somewhere\share` was applied
+verbatim, and the next `Import-Module` in `foundation/Import-Foundation.ps1` resolved
+modules from it.
+
+Both refusals throw rather than skip the line. A silently ignored line in a credential
+file is how a run proceeds without the credential it needed and fails later somewhere
+unrelated.
+
+## 2b. Where the credential is allowed to go
+
+The organization URL is **lower trust than the token**. The token comes from a secret
+store; the URL comes from a `.env` file or a pipeline parameter. Since the URL decides
+which host receives the `Basic` header, it is validated before a context is built:
+
+| Rule | Enforced by |
+| --- | --- |
+| Scheme must be `https` | `Assert-AdoOrganizationUrl` |
+| Host must be `dev.azure.com`, a `*.visualstudio.com` host, or one named in `-AllowedHost` | `Assert-AdoOrganizationUrl` |
+
+Without the host rule only the last path segment was inspected, so
+`https://attacker.example/dev.azure.com/contoso` was accepted and resolved to
+organization `contoso`. Every `Core` request then went to `attacker.example` with the
+token attached, while the `Identity` requests went to the real service — so the run
+partly succeeded and looked legitimate.
+
+Azure DevOps Server does not use those host names. `-AllowedHost` is a parameter rather
+than a configuration field on purpose: trusting a host with a credential should be
+visible in a diff at the call site.
+
+
 ## 3. The sentinel
 
 `PENDING_OWNER_CONFIGURATION` is the only value an automation will overwrite.
@@ -98,6 +140,35 @@ names the consequence rather than the action.
 
 Redaction matches on the **name**, not the value, and that is the important part: a
 weak password does not look like a secret, but its property name always does.
+
+### How the name is matched
+
+The pattern has two halves, because one unanchored list of words is wrong in both
+directions at the same time.
+
+| Half | Matches | Examples |
+| --- | --- | --- |
+| Long, unambiguous tokens | Anywhere in the name, case-insensitively — which is what covers camelCase | `password`, `secret`, `token`, `apikey`, `privatekey`, `sshkey`, `passphrase`, `connectionstring`, `signature` |
+| Short tokens that are also common substrings | Only as a whole name or a whole `_`/`-` delimited segment | `pat`, `key`, `sas`, `cert`, `auth`, `bearer` |
+
+The second half exists because of a real defect: an unanchored `pat` matched
+`areaPaths`, `iterationPaths`, `reportPath`, `patch` and `compatible`, so every
+`team-provisioning` inventory report replaced its Area Path and Iteration Path
+inventory — the data the report exists to carry — with `[redacted]`, and said nothing.
+Over-redaction is not the safe direction of this bug; it is the direction nobody
+notices, because the artefact still looks well-formed.
+
+### What this does not catch
+
+Name matching cannot see a credential that arrives in a field with an innocent name.
+The plan and receipt schema uses `value`, `reason`, `detail` and `message`, none of
+which match, so a secret interpolated into free-text prose is written verbatim. Two
+consequences follow, and both are live:
+
+- Do not interpolate a value into a plan `reason`. Describe the difference instead.
+- A future change should honour the `isSecret` flag that sits next to the value in a
+  Variable Group payload, and add a value-shape check for high-entropy strings and PEM
+  headers. Redaction by name is a first layer, not the whole control.
 
 ## 7. The sensitive data gate
 

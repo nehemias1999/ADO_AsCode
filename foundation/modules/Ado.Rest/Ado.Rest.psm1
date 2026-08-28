@@ -32,6 +32,98 @@ $script:RetryableStatusCodes = @(429, 500, 502, 503, 504)
 # is that an unresponsive endpoint cannot park an apply forever.
 $script:RequestTimeoutSeconds = 100
 
+# Hosts the Personal Access Token may be sent to without an explicit opt-in. The
+# PAT is attached to every request as a Basic authorization header, so this list is
+# the answer to "who can receive it".
+$script:DefaultAllowedHosts = @('dev.azure.com', 'vssps.dev.azure.com', 'vsaex.dev.azure.com')
+
+# Azure DevOps Services also answers on the legacy per-organization domain.
+$script:AllowedHostSuffixes = @('.visualstudio.com')
+
+function Assert-AdoOrganizationUrl {
+    <#
+    .SYNOPSIS
+        Validates an organization URL before a credential is aimed at it, and
+        returns it normalized.
+
+    .DESCRIPTION
+        The organization URL is lower-trust than the token: it arrives from a `.env`
+        file or a pipeline parameter, while the token comes from a secret store. So
+        the URL decides where the token goes, and it has to be checked.
+
+        Two rules, both of which were missing:
+
+        1. The scheme must be https. Over http the PAT crosses the network as
+           base64 in a Basic header, which is not encryption.
+        2. The host must be one this repository is willing to send a credential to.
+           Without a host check, only the last path segment was inspected, so
+           `https://attacker.example/dev.azure.com/contoso` was accepted and
+           resolved to organization `contoso` - and every Core request went to
+           `attacker.example` carrying the token, while the Identity requests went
+           to the real service, so the run partly succeeded and looked legitimate.
+
+        Azure DevOps Server (on-premises) does not use these host names, so
+        -AllowedHost extends the list. It is a parameter rather than a config field
+        because the decision to trust a host with a credential belongs at the call
+        site, where it is visible in a diff.
+
+    .PARAMETER OrganizationUrl
+        The URL to validate.
+
+    .PARAMETER AllowedHost
+        Additional host names permitted to receive the credential, for Azure DevOps
+        Server. Matched exactly, case-insensitively.
+
+    .EXAMPLE
+        Assert-AdoOrganizationUrl -OrganizationUrl 'https://dev.azure.com/contoso'
+
+    .EXAMPLE
+        Assert-AdoOrganizationUrl -OrganizationUrl 'https://tfs.onprem.example/tfs/DefaultCollection' -AllowedHost 'tfs.onprem.example'
+
+    .OUTPUTS
+        The URL with any trailing slash removed.
+    #>
+    [CmdletBinding()]
+    [OutputType([string])]
+    param(
+        [Parameter(Mandatory)] [string] $OrganizationUrl,
+        [string[]] $AllowedHost
+    )
+
+    $normalizedUrl = $OrganizationUrl.TrimEnd('/')
+
+    $uri = $null
+    if (-not [Uri]::TryCreate($normalizedUrl, [UriKind]::Absolute, [ref] $uri)) {
+        throw "The organization URL '$normalizedUrl' is not an absolute URL. Expected the form https://dev.azure.com/<organization>."
+    }
+
+    if ($uri.Scheme -ne 'https') {
+        throw "The organization URL '$normalizedUrl' does not use https. The Personal Access Token is sent as a Basic authorization header, so an http URL puts it on the network in clear text."
+    }
+
+    $permitted = @($script:DefaultAllowedHosts)
+    if ($AllowedHost) { $permitted += @($AllowedHost) }
+
+    $isPermitted = $permitted -contains $uri.Host
+    if (-not $isPermitted) {
+        foreach ($suffix in $script:AllowedHostSuffixes) {
+            if ($uri.Host.EndsWith($suffix, [StringComparison]::OrdinalIgnoreCase)) {
+                $isPermitted = $true
+                break
+            }
+        }
+    }
+
+    if (-not $isPermitted) {
+        throw ("The organization URL '$normalizedUrl' names host '$($uri.Host)', which is not a host this repository sends a credential to. " +
+            "Permitted: $($permitted -join ', '), or any *$($script:AllowedHostSuffixes -join ', *'). " +
+            'For Azure DevOps Server, pass -AllowedHost explicitly.')
+    }
+
+    return $normalizedUrl
+}
+
+
 function Remove-SecretFromText {
     <#
     .SYNOPSIS
@@ -96,6 +188,11 @@ function Get-AdoContext {
     .PARAMETER PersonalAccessToken
         Explicit token, overriding the ADO_PAT environment variable.
 
+    .PARAMETER AllowedHost
+        Additional host names the Personal Access Token may be sent to, for Azure
+        DevOps Server. Azure DevOps Services hosts are permitted by default; see
+        Assert-AdoOrganizationUrl.
+
     .EXAMPLE
         $context = Get-AdoContext -ProjectContext $projectContext
 
@@ -118,7 +215,9 @@ function Get-AdoContext {
         [string] $Project,
 
         [Parameter(ParameterSetName = 'Explicit', Mandatory)]
-        [string] $PersonalAccessToken
+        [string] $PersonalAccessToken,
+
+        [string[]] $AllowedHost
     )
 
     if ($PSCmdlet.ParameterSetName -eq 'FromEnvironment') {
@@ -138,7 +237,7 @@ function Get-AdoContext {
         $PersonalAccessToken = Get-RequiredEnvironmentVariable -Name 'ADO_PAT'
     }
 
-    $normalizedUrl = $OrganizationUrl.TrimEnd('/')
+    $normalizedUrl = Assert-AdoOrganizationUrl -OrganizationUrl $OrganizationUrl -AllowedHost $AllowedHost
     $organizationName = ([Uri]$normalizedUrl).Segments[-1].Trim('/')
     if ([string]::IsNullOrWhiteSpace($organizationName)) {
         throw "The organization URL '$normalizedUrl' does not end in an organization name. Expected the form https://dev.azure.com/<organization>."
@@ -667,6 +766,7 @@ function Get-AdoAuthenticatedUser {
 }
 
 Export-ModuleMember -Function @(
+    'Assert-AdoOrganizationUrl',
     'Get-AdoContext',
     'Get-RequiredEnvironmentVariable',
     'New-AdoUri',

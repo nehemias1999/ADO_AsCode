@@ -12,6 +12,37 @@ breaking change to a schema is a major version, whatever the code did.
 
 ### Security
 
+- **`service-connection-provisioning`** — an SSH private key is no longer copied into the
+  Service Connection's `data` bag. `data` is returned in clear text by
+  `GET _apis/serviceendpoint/endpoints` to every identity with read access to the project,
+  so a key written there was readable by anyone who could read the endpoint, and appeared
+  in any inventory built from an endpoint read. The key is now sent only as
+  `authorization.parameters.privateKey`, which GET never returns. Connections created
+  before this change should have their keys rotated, because the old key was exposed for
+  as long as the connection has existed.
+- **Foundation** — redaction now also covers `passphrase`, `connectionstring`, `connstr`,
+  `sshkey`, `signingkey`, `accesskey`, `keymaterial` and `signature`. Every one of those
+  names previously passed through in clear text, so a Variable Group secret named
+  `SFTP_KEY` or `DB_CONNSTR` had its resolved value written to `artifacts/`.
+- **Foundation** — `Import-AdoAsCodeEnvironment` validates the *name* of every variable
+  it loads. A name must match `^[A-Za-z_][A-Za-z0-9_]*$`, and the names that steer the
+  interpreter (`PSModulePath`, `Path`, `PSExecutionPolicyPreference`, `PSHOME`,
+  `PATHEXT`, `ComSpec`, `DOTNET_STARTUP_HOOKS`, `DOTNET_ADDITIONAL_DEPS`, `LD_PRELOAD`,
+  `LD_LIBRARY_PATH`) are refused. Previously any name was accepted, which made `.env` a
+  code execution path rather than a configuration one: a line reading
+  `PSModulePath=\somewhere\share` was applied verbatim and honoured by the next
+  `Import-Module` in `foundation/Import-Foundation.ps1`. Both refusals throw rather than
+  skip the line, so a run cannot proceed with a half-loaded environment.
+
+- **Foundation** — the organization URL is validated before the Personal Access Token is
+  aimed at it. `https` is now required, and the host must be `dev.azure.com`, a
+  `*.visualstudio.com` host, or one named explicitly in `-AllowedHost`. Previously only
+  the last path segment was checked, so `http://` was accepted (putting the token on the
+  network in clear text) and so was `https://attacker.example/dev.azure.com/contoso` —
+  which resolved to organization `contoso` and sent every `Core` request, token attached,
+  to `attacker.example`, while the `Identity` requests went to the real service, so the
+  run partly succeeded and looked legitimate.
+
 - **Foundation** — no request follows a redirect while carrying the credential.
   `MaximumRedirection` is now 0 on both `Invoke-AdoRest` and the paged reader. Windows
   PowerShell 5.1 — the support floor declared in every manifest — forwards
@@ -25,16 +56,55 @@ breaking change to a schema is a major version, whatever the code did.
 - **Foundation** — every request is bounded by `-TimeoutSec`. There was no timeout on
   either call, so an unresponsive endpoint parked an `apply` indefinitely with nothing
   to observe.
+- **Foundation** — `Remove-SensitiveValue` no longer redacts property names that merely
+  contain a sensitive substring. An unanchored `pat` matched `areaPaths`,
+  `iterationPaths`, `reportPath`, `patch` and `compatible`, so every `team-provisioning`
+  `inventory` report replaced its Area Path and Iteration Path inventory — the data the
+  report exists to carry — with `[redacted]`, silently. Short, ambiguous tokens (`pat`,
+  `key`, `sas`, `cert`, `auth`, `bearer`) now match only as a whole name or a whole
+  `_`/`-` delimited segment.
+- **Foundation** — `Remove-SensitiveValue` no longer collapses a single-element list into
+  a bare value. PowerShell enumerates a function's output, so a one-item inventory list
+  was serialised into the report as a string instead of an array, changing the shape of
+  the evidence file.
+- **CI** — the `documentation` job no longer fails on a document that contains no
+  relative links. `grep` exits 1 when it matches nothing, and under `set -o pipefail`
+  that became the pipeline's status, so `|| failed=1` fired on a *clean* file. Four ADRs
+  triggered it, which means the job had been red while printing only
+  `Documentation check failed.` — a failing gate that named nothing, which is the
+  failure mode most likely to train people to ignore it.
+- **CI** — the link check now reports every broken link instead of the first one per
+  file. Its `exit 1` was inside a pipeline subshell, so it left the subshell rather than
+  the job, and a genuine broken link was indistinguishable from the false positive above.
+- **CI** — the index check matches the file name as a fixed string (`grep -F`). It was
+  treated as a regex, so the dots in a file name were wildcards.
 
 ### Added
 
 - **Foundation** — `New-AdoRequestParameter`, the request splat as a pure function, so
-  the two protections above are covered by a test instead of trusted. Both are invisible
-  when missing: a request with neither behaves normally against a healthy service.
+  the redirect and timeout protections are covered by a test instead of trusted. Both are
+  invisible when missing: a request with neither behaves normally against a healthy
+  service.
 - **Tests** — `tests/foundation/Ado.Rest.RequestParameters.Tests.ps1`, six cases,
   including one asserting both protections survive on the body-carrying branch.
+- **Foundation** — `Assert-AdoOrganizationUrl`, exported so a caller can validate a URL
+  before building a context.
+- **Tests** — `tests/foundation/Ado.Rest.Tests.ps1`, the first tests for `Ado.Rest`.
+  Sixteen cases covering URL validation, organization-name derivation, Basic header
+  construction and `Remove-SecretFromText` — the last of which
+  `docs/process/risk-register.md` credits as a control and which had no test at all.
+- **Foundation** — `New-AdoSshServiceEndpointPayload`, the Service Connection request body
+  as a pure function. Split out of `New-AdoSshServiceEndpoint` so credential placement can
+  be asserted without a round trip; seven tests cover it, one of which renders the whole
+  payload with `authorization` removed and fails if a credential appears anywhere in the
+  remainder.
 
-`plan` output is unchanged for unchanged input.
+**Breaking for on-premises users:** an Azure DevOps Server URL now requires
+`-AllowedHost`. Azure DevOps Services URLs are unaffected.
+
+Report content changes for the better: paths that were `[redacted]` now appear, and
+credential-named fields that appeared now do not. `plan` output is otherwise unchanged
+for unchanged input.
 
 ## [1.0.0] - 2026-01
 

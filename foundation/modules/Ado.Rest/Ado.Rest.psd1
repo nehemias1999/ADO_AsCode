@@ -9,6 +9,7 @@
     PowerShellVersion = '5.1'
 
     FunctionsToExport = @(
+        'Assert-AdoOrganizationUrl',
         'Get-AdoContext',
         'Get-RequiredEnvironmentVariable',
         'New-AdoUri',
