@@ -90,7 +90,12 @@ param(
     [string] $CsvPath,
     [string] $ReportPath,
 
-    [switch] $ConfirmApply
+    [switch] $ConfirmApply,
+
+    # A secret is resolved from <NAME>_<ENVIRONMENT>. This also accepts the bare
+    # <NAME>, for a credential deliberately shared across environments. Opt-in,
+    # because the bare name is what allowed a DEV value to be written over PROD.
+    [switch] $AllowUnqualifiedSecretName
 )
 
 Set-StrictMode -Version Latest
@@ -402,6 +407,11 @@ function New-VariableGroupPlan {
     .PARAMETER Sentinel
         The configuration sentinel.
 
+    .PARAMETER AllowUnqualifiedSecretName
+        Resolve a secret from its bare name as well as <NAME>_<ENVIRONMENT>. Needed only
+        when one credential is genuinely shared across environments, and opt-in because
+        the failure mode of the bare name is silent: a DEV value written over PROD.
+
     .PARAMETER CommandName
         Command being planned.
 
@@ -423,7 +433,8 @@ function New-VariableGroupPlan {
         [Parameter(Mandatory)] [AllowEmptyCollection()] [object[]] $Row,
         [Parameter(Mandatory)] [AllowEmptyCollection()] [object[]] $Target,
         [Parameter(Mandatory)] [string] $Sentinel,
-        [Parameter(Mandatory)] [string] $CommandName
+        [Parameter(Mandatory)] [string] $CommandName,
+        [switch] $AllowUnqualifiedSecretName
     )
 
     $plan = New-Plan -Command $CommandName -Target (@($Target | ForEach-Object { "$($_.application)/$($_.environment)" }) -join ',')
@@ -473,7 +484,8 @@ function New-VariableGroupPlan {
         }
 
         $group = Get-AdoVariableGroup -Context $Context -Id ([int]$summary[0].id)
-        $secretSource = Get-AdoVariableGroupSecretSource -VariableGroup $group
+        $secretSource = Get-AdoVariableGroupSecretSource -VariableGroup $group `
+            -Environment $target.environment -AllowUnqualifiedName:$AllowUnqualifiedSecretName
         $writeBlock = Get-VariableGroupWriteBlock -Group $group -SecretSource $secretSource
         $liveNames = @($group.variables.PSObject.Properties.Name)
 
@@ -601,6 +613,11 @@ function Invoke-VariableGroupApply {
     .PARAMETER ReceiptPath
         Where to write the incremental receipt.
 
+    .PARAMETER AllowUnqualifiedSecretName
+        Resolve a secret from its bare name as well as <NAME>_<ENVIRONMENT>. Needed only
+        when one credential is genuinely shared across environments, and opt-in because
+        the failure mode of the bare name is silent: a DEV value written over PROD.
+
     .EXAMPLE
         Invoke-VariableGroupApply -Context $context -Project $project -Scope $scope -Row $rows -Target $targets -Sentinel $sentinel -ReceiptPath $receiptPath
 
@@ -616,7 +633,8 @@ function Invoke-VariableGroupApply {
         [Parameter(Mandatory)] [AllowEmptyCollection()] [object[]] $Row,
         [Parameter(Mandatory)] [AllowEmptyCollection()] [object[]] $Target,
         [Parameter(Mandatory)] [string] $Sentinel,
-        [Parameter(Mandatory)] [string] $ReceiptPath
+        [Parameter(Mandatory)] [string] $ReceiptPath,
+        [switch] $AllowUnqualifiedSecretName
     )
 
     $completed = New-Object System.Collections.ArrayList
@@ -693,7 +711,9 @@ function Invoke-VariableGroupApply {
                 continue
             }
 
-            $payload = Set-AdoVariableGroupValue -Context $Context -Project $Project -GroupId ([int]$group.id) -SetValue $writes
+            $payload = Set-AdoVariableGroupValue -Context $Context -Project $Project -GroupId ([int]$group.id) `
+                -SetValue $writes -Environment $target.environment `
+                -AllowUnqualifiedSecretName:$AllowUnqualifiedSecretName
             $completed.Add([pscustomobject]@{
                 resource = 'Variable Group'
                 name     = $groupName
@@ -851,7 +871,7 @@ if ($Command -eq 'inventory') {
 }
 
 $plan = New-VariableGroupPlan -Context $context -Scope $scope -Row $csv.rows -Target @($targets.ToArray()) `
-    -Sentinel $sentinel -CommandName $Command
+    -Sentinel $sentinel -CommandName $Command -AllowUnqualifiedSecretName:$AllowUnqualifiedSecretName
 Write-PlanSummary -Plan $plan
 
 switch ($Command) {
@@ -888,7 +908,8 @@ switch ($Command) {
 
         $receiptPath = Get-AdoAsCodeReceiptPath -ReportPath $ReportPath
         $completed = @(Invoke-VariableGroupApply -Context $context -Project $project -Scope $scope `
-            -Row $csv.rows -Target @($targets.ToArray()) -Sentinel $sentinel -ReceiptPath $receiptPath)
+            -Row $csv.rows -Target @($targets.ToArray()) -Sentinel $sentinel -ReceiptPath $receiptPath `
+            -AllowUnqualifiedSecretName:$AllowUnqualifiedSecretName)
 
         Write-AdoAsCodeReport -Plan $plan -Path $ReportPath -Module $moduleName `
             -Detail ([pscustomobject]@{ appliedOperations = $completed }) | Out-Null

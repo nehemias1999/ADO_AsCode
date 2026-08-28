@@ -187,10 +187,26 @@ function Get-AdoVariableGroupSecretSource {
         environment.
 
     .DESCRIPTION
-        The convention is one to one: a secret variable named APP_SERVER_PASSWORD is
-        resolved from the environment variable of the same name, loaded from the
-        local .env file or from the pipeline's secret variables before the command
-        runs.
+        Resolution is ENVIRONMENT QUALIFIED. A secret variable named
+        APP_SERVER_PASSWORD in the DEV group is resolved from APP_SERVER_PASSWORD_DEV,
+        not from APP_SERVER_PASSWORD.
+
+        That qualification is the whole point of this function's signature. The group
+        name carries the environment (groupNamePattern) but the secret's own name does
+        not, and the live value cannot be read back to compare against - Azure DevOps
+        never returns a stored secret. So with an unqualified lookup, a stale or
+        DEV-valued APP_SERVER_PASSWORD sitting in .env was written over the PROD
+        secret by any apply that touched a non-secret key in that group, and the API
+        reported success. Nothing anywhere could detect it afterwards.
+
+        The unqualified name is accepted only under -AllowUnqualifiedName, for the
+        case where one credential genuinely is shared across environments. It has to
+        be asked for, because the failure mode of guessing wrong is silent and
+        unrecoverable.
+
+        A secret with no resolvable value is deliberately left ABSENT from the
+        returned map, so New-AdoVariableGroupPayload reports it as a block rather
+        than resending an empty string - which would blank the credential.
 
         A secret with no value in the environment is deliberately left ABSENT from
         the returned map, so the writer reports it as a block rather than resending
@@ -199,23 +215,55 @@ function Get-AdoVariableGroupSecretSource {
     .PARAMETER VariableGroup
         Group object from Get-AdoVariableGroup -Id.
 
+    .PARAMETER Environment
+        Environment this group belongs to, for example DEV or PROD. When supplied, each
+        secret is resolved from <NAME>_<ENVIRONMENT>.
+
+    .PARAMETER AllowUnqualifiedName
+        Also accept the bare <NAME>, for a credential deliberately shared across
+        environments. Without it, a secret with no environment-qualified variable is
+        left unresolved and the write is blocked.
+
     .EXAMPLE
-        $sources = Get-AdoVariableGroupSecretSource -VariableGroup $group
+        $sources = Get-AdoVariableGroupSecretSource -VariableGroup $group -Environment 'PROD'
+
+        Resolves APP_SERVER_PASSWORD from APP_SERVER_PASSWORD_PROD.
 
     .OUTPUTS
-        Hashtable of variable name to value.
+        Hashtable of variable name to value. A secret that could not be resolved is
+        absent, which is what makes the writer block instead of blanking it.
     #>
     [CmdletBinding()]
     [OutputType([hashtable])]
     param(
-        [Parameter(Mandatory)] [object] $VariableGroup
+        [Parameter(Mandatory)] [object] $VariableGroup,
+        [string] $Environment,
+        [switch] $AllowUnqualifiedName
     )
 
     $sources = @{}
     foreach ($property in @($VariableGroup.variables.PSObject.Properties)) {
-        if (-not [bool]$property.Value.isSecret) { continue }
-        $value = [Environment]::GetEnvironmentVariable("$($property.Name)", 'Process')
-        if (-not [string]::IsNullOrEmpty($value)) { $sources["$($property.Name)"] = $value }
+        if ($property.Value.isSecret -ne $true) { continue }
+
+        $secretName = "$($property.Name)"
+
+        # Qualified first, always. The bare name is a fallback that has to be asked
+        # for, because it is the one that can carry a DEV value into PROD.
+        $candidates = New-Object System.Collections.Generic.List[string]
+        if (-not [string]::IsNullOrWhiteSpace($Environment)) {
+            $candidates.Add("${secretName}_$Environment")
+        }
+        if ($AllowUnqualifiedName -or [string]::IsNullOrWhiteSpace($Environment)) {
+            $candidates.Add($secretName)
+        }
+
+        foreach ($candidate in $candidates) {
+            $value = [Environment]::GetEnvironmentVariable($candidate, 'Process')
+            if (-not [string]::IsNullOrEmpty($value)) {
+                $sources[$secretName] = $value
+                break
+            }
+        }
     }
     return $sources
 }
@@ -501,6 +549,15 @@ function Set-AdoVariableGroupValue {
     .PARAMETER Description
         Optional new description.
 
+    .PARAMETER Environment
+        Environment this group belongs to. Passed through to
+        Get-AdoVariableGroupSecretSource, which resolves each secret from
+        <NAME>_<ENVIRONMENT>.
+
+    .PARAMETER AllowUnqualifiedSecretName
+        Allow a secret to be resolved from its bare name as well as the
+        environment-qualified one. See Get-AdoVariableGroupSecretSource.
+
     .EXAMPLE
         Set-AdoVariableGroupValue -Context $context -Project $project -GroupId 42 -SetValue @{ DEPLOY_PATH = '/srv/app' }
 
@@ -515,11 +572,14 @@ function Set-AdoVariableGroupValue {
         [Parameter(Mandatory)] [int] $GroupId,
         [System.Collections.IDictionary] $RenameUpdate,
         [System.Collections.IDictionary] $SetValue,
-        [string] $Description
+        [string] $Description,
+        [string] $Environment,
+        [switch] $AllowUnqualifiedSecretName
     )
 
     $group = Get-AdoVariableGroup -Context $Context -Id $GroupId
-    $resolvedSecrets = Get-AdoVariableGroupSecretSource -VariableGroup $group
+    $resolvedSecrets = Get-AdoVariableGroupSecretSource -VariableGroup $group `
+        -Environment $Environment -AllowUnqualifiedName:$AllowUnqualifiedSecretName
     $payload = New-AdoVariableGroupPayload -VariableGroup $group -RenameUpdate $RenameUpdate `
         -SetValue $SetValue -SecretSource $resolvedSecrets
 
@@ -580,6 +640,15 @@ function Rename-AdoVariableGroup {
     .PARAMETER NewName
         New group name.
 
+    .PARAMETER Environment
+        Environment this group belongs to. Passed through to
+        Get-AdoVariableGroupSecretSource. A rename re-posts every secret, so the same
+        qualification applies.
+
+    .PARAMETER AllowUnqualifiedSecretName
+        Allow a secret to be resolved from its bare name as well as the
+        environment-qualified one.
+
     .EXAMPLE
         Rename-AdoVariableGroup -Context $context -Project $project -GroupId 42 -NewName 'Credentials_APP_ALPHA_QA'
     #>
@@ -588,13 +657,16 @@ function Rename-AdoVariableGroup {
         [Parameter(Mandatory)] [object] $Context,
         [Parameter(Mandatory)] [object] $Project,
         [Parameter(Mandatory)] [int] $GroupId,
-        [Parameter(Mandatory)] [string] $NewName
+        [Parameter(Mandatory)] [string] $NewName,
+        [string] $Environment,
+        [switch] $AllowUnqualifiedSecretName
     )
 
     $group = Get-AdoVariableGroup -Context $Context -Id $GroupId
     if ("$($group.name)" -ceq $NewName) { return $group }
 
-    $resolvedSecrets = Get-AdoVariableGroupSecretSource -VariableGroup $group
+    $resolvedSecrets = Get-AdoVariableGroupSecretSource -VariableGroup $group `
+        -Environment $Environment -AllowUnqualifiedName:$AllowUnqualifiedSecretName
     $payload = New-AdoVariableGroupPayload -VariableGroup $group -SecretSource $resolvedSecrets
     if ($payload.blocked.Count -gt 0) {
         throw ($payload.blocked -join ' ')

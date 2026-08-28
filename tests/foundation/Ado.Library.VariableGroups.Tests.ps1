@@ -283,3 +283,99 @@ Describe 'New-AdoSshServiceEndpointPayload' {
         $payload.isShared | Should -BeFalse
     }
 }
+
+Describe 'Get-AdoVariableGroupSecretSource' {
+
+    AfterEach {
+        foreach ($name in @('APP_SERVER_PASSWORD', 'APP_SERVER_PASSWORD_DEV', 'APP_SERVER_PASSWORD_PROD')) {
+            [Environment]::SetEnvironmentVariable($name, $null, 'Process')
+        }
+    }
+
+    It 'resolves a secret from the environment-qualified name' {
+        [Environment]::SetEnvironmentVariable('APP_SERVER_PASSWORD_PROD', 'prod-value', 'Process')
+        $group = New-VariableGroupFixture -Variable @{ APP_SERVER_PASSWORD = @{ value = $null; isSecret = $true } }
+
+        $sources = Get-AdoVariableGroupSecretSource -VariableGroup $group -Environment 'PROD'
+
+        $sources['APP_SERVER_PASSWORD'] | Should -Be 'prod-value'
+    }
+
+    It 'does not resolve a PROD secret from a DEV value' {
+        # The finding this exists for. The group name carries the environment; the
+        # secret's name does not. The live value cannot be read back to compare
+        # against, because Azure DevOps never returns a stored secret. So an
+        # unqualified lookup let a DEV-valued APP_SERVER_PASSWORD sitting in .env be
+        # written over the PROD secret by any apply that touched a non-secret key in
+        # that group - and the API reported success.
+        [Environment]::SetEnvironmentVariable('APP_SERVER_PASSWORD_DEV', 'dev-value', 'Process')
+        $group = New-VariableGroupFixture -Variable @{ APP_SERVER_PASSWORD = @{ value = $null; isSecret = $true } }
+
+        $sources = Get-AdoVariableGroupSecretSource -VariableGroup $group -Environment 'PROD'
+
+        $sources.ContainsKey('APP_SERVER_PASSWORD') | Should -BeFalse
+    }
+
+    It 'ignores the bare name unless it is explicitly allowed' {
+        [Environment]::SetEnvironmentVariable('APP_SERVER_PASSWORD', 'shared-value', 'Process')
+        $group = New-VariableGroupFixture -Variable @{ APP_SERVER_PASSWORD = @{ value = $null; isSecret = $true } }
+
+        $strict = Get-AdoVariableGroupSecretSource -VariableGroup $group -Environment 'PROD'
+        $permissive = Get-AdoVariableGroupSecretSource -VariableGroup $group -Environment 'PROD' -AllowUnqualifiedName
+
+        $strict.ContainsKey('APP_SERVER_PASSWORD') | Should -BeFalse
+        $permissive['APP_SERVER_PASSWORD'] | Should -Be 'shared-value'
+    }
+
+    It 'prefers the qualified name over the bare one' {
+        # If both exist, the specific one wins. Otherwise -AllowUnqualifiedName would
+        # reintroduce exactly the bug it is a concession to.
+        [Environment]::SetEnvironmentVariable('APP_SERVER_PASSWORD', 'shared-value', 'Process')
+        [Environment]::SetEnvironmentVariable('APP_SERVER_PASSWORD_PROD', 'prod-value', 'Process')
+        $group = New-VariableGroupFixture -Variable @{ APP_SERVER_PASSWORD = @{ value = $null; isSecret = $true } }
+
+        $sources = Get-AdoVariableGroupSecretSource -VariableGroup $group -Environment 'PROD' -AllowUnqualifiedName
+
+        $sources['APP_SERVER_PASSWORD'] | Should -Be 'prod-value'
+    }
+
+    It 'an unresolved secret blocks the write instead of blanking it' {
+        # The absence in the map is load-bearing: it is what makes the payload builder
+        # report a block rather than send an empty string.
+        $group = New-VariableGroupFixture -Variable @{
+            APP_SERVER_PASSWORD = @{ value = $null; isSecret = $true }
+            DEPLOY_PATH         = @{ value = '/srv/app'; isSecret = $false }
+        }
+
+        $sources = Get-AdoVariableGroupSecretSource -VariableGroup $group -Environment 'PROD'
+        $payload = New-AdoVariableGroupPayload -VariableGroup $group -SetValue @{ DEPLOY_PATH = '/srv/new' } -SecretSource $sources
+
+        @($payload.blocked).Count | Should -BeGreaterThan 0
+        ($payload.blocked -join ' ') | Should -BeLike '*APP_SERVER_PASSWORD*'
+    }
+
+    It 'ignores a non-secret variable even when a qualified value exists' {
+        [Environment]::SetEnvironmentVariable('APP_SERVER_PASSWORD_PROD', 'prod-value', 'Process')
+        $group = New-VariableGroupFixture -Variable @{ APP_SERVER_PASSWORD = @{ value = 'plain'; isSecret = $false } }
+
+        $sources = Get-AdoVariableGroupSecretSource -VariableGroup $group -Environment 'PROD'
+
+        $sources.Count | Should -Be 0
+    }
+
+    It 'treats a string isSecret as not secret rather than truthy' {
+        # [bool]'false' is $true in PowerShell, so a cast here was the one whose
+        # failure mode is credential destruction: a secret misread as non-secret has
+        # its masked live value copied into the payload, and the PUT writes the mask
+        # over the credential.
+        $group = [pscustomobject]@{
+            variables = [pscustomobject]@{
+                APP_SERVER_PASSWORD = [pscustomobject]@{ value = 'masked'; isSecret = 'false' }
+            }
+        }
+
+        $sources = Get-AdoVariableGroupSecretSource -VariableGroup $group -Environment 'PROD'
+
+        $sources.Count | Should -Be 0
+    }
+}

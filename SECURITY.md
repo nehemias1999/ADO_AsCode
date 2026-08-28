@@ -25,7 +25,8 @@ vulnerability reporting instead of a public issue.
 | No secret value is ever committed | Configuration declares environment variable *names*; values are read at run time. `.gitignore` excludes `.env`, `.local/` and `artifacts/`. `scripts/Test-NoSensitiveData.ps1` fails the build on secret-shaped strings. |
 | No resource is deleted | Every writer is additive. Board columns that are not declared are preserved, never removed. |
 | Nothing is written without an explicit confirmation | `apply` requires `-ConfirmApply`; a rename additionally requires `-ConfirmRename`. Without them the command is a pure simulation. |
-| A pre-existing credential is never overwritten by accident | The only value an automation will replace is the literal sentinel `PENDING_OWNER_CONFIGURATION`. Overwriting anything else needs `-ForceUpdate -ForceCredentialOverwrite`. |
+| A pre-existing **non-secret** value is never overwritten by accident | The only value an automation will replace is the literal sentinel `PENDING_OWNER_CONFIGURATION`. Overwriting anything else needs `-ForceUpdate -ForceCredentialOverwrite`. |
+| A **secret** is never replaced by a value from the wrong environment | A secret is re-posted only from `<NAME>_<ENVIRONMENT>`. The bare `<NAME>` needs `-AllowUnqualifiedSecretName`. Unresolvable means blocked, never blanked. |
 | A partial failure leaves an audit trail | `apply` writes an incremental receipt after every completed operation, so an interrupted run still records exactly what changed. |
 | Secrets never reach a log or a report | Reports pass through a redaction step; error messages strip the `Authorization` header. |
 

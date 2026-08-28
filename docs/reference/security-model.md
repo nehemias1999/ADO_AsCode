@@ -86,7 +86,11 @@ visible in a diff at the call site.
 
 ## 3. The sentinel
 
-`PENDING_OWNER_CONFIGURATION` is the only value an automation will overwrite.
+`PENDING_OWNER_CONFIGURATION` is the only **non-secret** value an automation will
+overwrite.
+
+Secrets are a separate rule, because they are invisible: Azure DevOps never returns a
+stored secret, so the sentinel comparison cannot be performed on one. See section 4b.
 
 | Live value | What happens |
 | --- | --- |
@@ -116,6 +120,34 @@ The mitigation is to re-post each secret with a value the caller can prove it kn
 and to refuse when it cannot. `New-AdoVariableGroupPayload` blocks if a secret has no
 source, if a resolved value is empty, or if the payload's secret count would differ
 from the group's.
+
+## 4b. How a secret is resolved when it has to be re-posted
+
+A Variable Group `PUT` sends the whole object, so writing one non-secret key means
+re-posting every secret in the same request. The value comes from the environment, and
+**which** variable it comes from is the safety question.
+
+| Live secret in the group | Resolved from | If not found |
+| --- | --- | --- |
+| `APP_SERVER_PASSWORD` in the DEV group | `APP_SERVER_PASSWORD_DEV` | Blocked |
+| `APP_SERVER_PASSWORD` in the PROD group | `APP_SERVER_PASSWORD_PROD` | Blocked |
+| the same, with `-AllowUnqualifiedSecretName` | `APP_SERVER_PASSWORD_<ENV>`, then `APP_SERVER_PASSWORD` | Blocked |
+
+The qualification exists because the group name carries the environment
+(`groupNamePattern`) and the secret's own name does not. With an unqualified lookup, a
+stale or DEV-valued `APP_SERVER_PASSWORD` sitting in `.env` was written over the **PROD**
+secret by any `apply` that touched a non-secret key in that group — and since the live
+value cannot be read back, nothing could detect it. The API reported success.
+
+`-AllowUnqualifiedSecretName` exists for a credential genuinely shared across
+environments. It is opt-in rather than the default because the failure mode of guessing
+wrong is silent and unrecoverable: nobody learns until a deployment fails to
+authenticate, and the previous value is gone.
+
+**Blocked, never blanked.** A secret with no resolvable value is left out of the
+resolution map, which makes `New-AdoVariableGroupPayload` refuse the write rather than
+send an empty string. Three independent checks enforce that, and the payload's secret
+count must match the group's.
 
 ## 5. Two switches, not one
 

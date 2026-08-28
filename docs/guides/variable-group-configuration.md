@@ -16,7 +16,9 @@ field, every command, and how to reverse what it did.
 ## 1. What it owns
 
 Variable Groups in scope, the keys they may contain, and the values of the non-secret
-ones. It never writes a secret value, and it never deletes.
+ones. It never sets a secret to a value you name, and it never deletes. It does
+**re-post** every secret when it writes to a group that holds one - see section 4b,
+because that is the one operation here that can lose a credential.
 
 ## 2. The three rules
 
@@ -72,6 +74,33 @@ Four columns, exactly. `validate` rejects a row for each of:
 
 The secret rejection is the enforcement of "a secret value never travels through a
 CSV". It is a rule with a check behind it, not a convention.
+
+## 4b. Secret re-posting, and the variable it reads
+
+Writing any non-secret key in a group that holds secrets means re-posting **every**
+secret in the same request, because a Variable Group `PUT` sends the whole object and an
+omitted value is stored as an empty string.
+
+Each secret is resolved from an **environment-qualified** variable:
+
+```text
+Group  Credentials_APP_ALPHA_PROD
+Secret APP_SERVER_PASSWORD
+Reads  APP_SERVER_PASSWORD_PROD
+```
+
+If that variable is not set, the group is reported **blocked** and nothing is written.
+That is the intended outcome, not a failure to work around.
+
+`-AllowUnqualifiedSecretName` additionally accepts the bare `APP_SERVER_PASSWORD`, for a
+credential that really is the same in every environment. The qualified name still wins
+when both are set.
+
+> Declare these in `.env` or as pipeline secret variables, one per environment. The
+> reason the plain name is not the default: the group name carries the environment but
+> the secret's name does not, and the live value cannot be read back to compare — so a
+> DEV value in `APP_SERVER_PASSWORD` used to overwrite the PROD secret with the API
+> reporting success.
 
 ## 5. Commands
 
@@ -134,7 +163,7 @@ What is *not* a correct response is forcing the write. There is no switch for it
 | --- | --- |
 | Group created | Deleting it in **Pipelines > Library**, after confirming no pipeline references it. |
 | Non-secret value written | Setting it back in the portal, or resetting the key to the sentinel and re-running. The receipt records the previous value where there was one. |
-| Secret re-posted | Nothing to reverse — the value re-posted is the one already in effect. If a pipeline starts failing on authentication after an apply, treat the secret as blanked and have its owner set it again. |
+| Secret re-posted | The value re-posted is whatever `<NAME>_<ENVIRONMENT>` held in the environment of the run — **not** necessarily the value that was in effect, because the live value cannot be read back to compare. If a pipeline starts failing on authentication after an apply, have the owner set the secret again, and check which variable the run resolved. |
 
 ## 10. Deliberately not implemented
 
