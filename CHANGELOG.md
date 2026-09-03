@@ -12,6 +12,23 @@ breaking change to a schema is a major version, whatever the code did.
 
 ### Fixed
 
+- **Quality gate** — a PSScriptAnalyzer `Warning` now fails `Invoke-Tests.ps1`. Only
+  `Error` did, and almost every rule this repository relies on is a Warning:
+  `PSUseShouldProcessForStateChangingFunctions`, `PSAvoidUsingEmptyCatchBlock`,
+  `PSUseDeclaredVarsMoreThanAssignments`, `PSUseCompatibleSyntax`,
+  `PSAvoidUsingCmdletAliases`. The gate reported them and enforced none, while
+  `testing-strategy.md` credited it with catching exactly those. The repository is at
+  zero findings under its own settings, so this adds no backlog — it defends the next
+  one.
+- **Quality gate** — a PSScriptAnalyzer rule that crashes now fails the run instead of
+  aborting it. A rule error is non-terminating, and this script sets
+  `$ErrorActionPreference = 'Stop'`, so an unhandled one killed the runner before Pester
+  with a `NullReferenceException` as the only clue. A rule that crashed did not analyse
+  its file, and a check that silently analysed nothing is worse than one that says so.
+- **Quality gate** — a missing PSScriptAnalyzer is a failure, not a silent skip, with
+  `-Skip Analyzer` as the explicit opt-out. The finding list is no longer truncated at
+  40, and a per-rule tally is printed, which is what distinguishes a real regression
+  from one rule misfiring repository-wide.
 - **Docs** — added `docs/reference/api-reference.md`, naming all 71 functions the
   foundation exports with the synopsis each declares in its own comment-based help. 53 of
   them appeared in no document at all, so the only way to learn whether a behaviour

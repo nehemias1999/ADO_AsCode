@@ -69,6 +69,13 @@ destroys something:
 | PSScriptAnalyzer | Unused parameters, empty catch blocks, missing `ShouldProcess`, 5.1 incompatibilities. |
 | Sensitive data gate | Credential-shaped strings, private addresses, internal host names, workstation paths, plus a local deny list. |
 
+Any finding fails the gate, `Warning` included. That matters more than it sounds: the
+four things the table above credits PSScriptAnalyzer with catching are all severity
+`Warning`, so while only `Error` failed, the gate reported them and enforced none of
+them. A missing analyzer is a failure too, rather than a silent skip — otherwise the
+strictest half of the gate passes by doing nothing, and "it passed" stops meaning the
+same thing on a workstation as in CI. `-Skip Analyzer` is the explicit opt-out.
+
 Six rules are excluded, each with the reason recorded in
 `PSScriptAnalyzerSettings.psd1`. Excluding a rule silently is how a settings file
 becomes folklore; excluding one with a measurement next to it is a decision somebody
