@@ -39,7 +39,6 @@ module's own configuration.
 | Iteration Path | `{project}\{application}_Team\{iteration}` | `Platform\APP_ALPHA_Team\Sprint 01` |
 | Variable Group | `Credentials_{application}_{environment}` | `Credentials_APP_ALPHA_DEV` |
 | Service Connection | `SFTP_{application}_{environment}` | `SFTP_APP_ALPHA_DEV` |
-| Approver group | `{application}_{environment}_Approvers` | `APP_ALPHA_PROD_Approvers` |
 
 ## 3. Environment variables
 

@@ -80,7 +80,7 @@ Each is invoked the same way: `-Command <verb>`, with `-ApplicationKey` and ofte
 | Incremental receipt | Rewritten after **every** completed operation, so an interrupted run still records what finished. | `artifacts/`, `*.receipt.json` |
 | Secret redaction | Values are replaced by the *name* of their property, so a weak password is redacted too. | `Remove-SensitiveValue` |
 | Sensitive data gate | Fails the build on credential-shaped strings, private addresses, internal host names, workstation paths. | `scripts/Test-NoSensitiveData.ps1` |
-| Retry with backoff | Transient `429` and `5xx` only. A `400` or `409` is a real answer and is never retried. | `Invoke-AdoRest` |
+| Retry with backoff | `GET`, `PUT` and `DELETE` only — `POST` creates, so retrying one manufactures a duplicate. Retried on `408`, `429`, `500`, `502`, `503`, `504`, and on a failure with **no** status at all (DNS, TLS, timeout). A `400` or `409` is a real answer and is never retried. `Retry-After` is honoured, capped at 120s. | `Get-AdoRetryDecision` |
 
 ## 6. Where each capability is proven
 

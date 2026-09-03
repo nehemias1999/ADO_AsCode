@@ -83,8 +83,7 @@
         "areaPath": { "type": "string" },
         "iterationPath": { "type": "string" },
         "variableGroup": { "type": "string" },
-        "serviceConnection": { "type": "string" },
-        "approverGroup": { "type": "string" }
+        "serviceConnection": { "type": "string" }
       }
     },
 

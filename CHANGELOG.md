@@ -12,6 +12,27 @@ breaking change to a schema is a major version, whatever the code did.
 
 ### Fixed
 
+- **Docs** — `configuration-reference.md` described the environment variable for a secret
+  Variable Group value as carrying the *same name as the variable in the group*. That is
+  the rule the environment-qualified secret source replaced, and following it produced a
+  group reported `blocked` with nothing in the reference explaining why. It now states
+  the `<KEY>_<ENV>` form, the reason the environment qualifier exists, and what
+  `-AllowUnqualifiedSecretName` is for.
+- **Docs** — `.env.example` declared `APP_SERVER_HOST_DEV/QA/PROD` under a heading
+  offering non-secret defaults. Nothing reads those variables: non-secret values come
+  from the values CSV, and only secrets are read from the environment. The block also
+  claimed an empty key stays at the sentinel, where an empty row in the CSV is in fact
+  rejected. Replaced with the rule that actually applies.
+- **Docs** — `naming.approverGroup` is removed from `project-context.json`, its schema,
+  `conventions.md` and `configuration-reference.md`. It was declared, schema-checked and
+  documented with a worked example, and no code has ever read it. Configuration that
+  looks like a capability and is not is worse than an absent feature, because it is
+  discovered only after someone depends on it.
+- **Docs** — the retry policy in `capabilities.md` and in `azure-devops-notes.md` §12
+  predated `Get-AdoRetryDecision` and contradicted the *Retry policy* section twenty-five
+  lines further down the same file. Both now state the implemented rule: `GET`, `PUT` and
+  `DELETE` only, `408`/`429`/`5xx` plus failures carrying no status, `Retry-After` capped
+  at 120s — and attribute it to the function that decides it.
 - **Foundation** — `POST` is no longer retried. The retry loop was method-agnostic, so a
   `502` or `504` arriving after the server had committed produced a duplicate Team,
   security group, Variable Group or Service Connection on the retry — and a duplicate is
