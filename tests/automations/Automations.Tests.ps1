@@ -270,3 +270,128 @@ Describe 'Pipeline definitions' {
         }
     }
 }
+
+Describe 'Pipeline environment file' {
+
+    BeforeAll {
+        $script:pipelineFiles = @(Get-ChildItem -LiteralPath (Join-Path (Get-RepositoryRoot) 'pipelines') -Filter '*.yml')
+    }
+
+    It 'removes the environment file whatever the run did' {
+        # The file carries ADO_PAT in clear text. On a Microsoft-hosted agent the
+        # workspace is discarded, which is the assumption the writing step was built
+        # on - but a self-hosted agent is the case this repository exists for, and
+        # there the workspace survives, so a missing cleanup step leaves the token on
+        # disk between builds for every other pipeline on that agent to read.
+        foreach ($file in $script:pipelineFiles) {
+            $content = Get-Content -Raw -LiteralPath $file.FullName
+
+            $content | Should -BeLike '*Remove-EnvironmentFile.ps1*' `
+                -Because "$($file.Name) must remove the environment file it wrote"
+            $content | Should -Match '(?s)Remove the environment file.*?condition:\s*always\(\)' `
+                -Because "$($file.Name) must remove it unconditionally - a failed apply leaves the file exactly like a successful one"
+        }
+    }
+
+    It 'removes the environment file before it publishes the evidence' {
+        foreach ($file in $script:pipelineFiles) {
+            $lines = @(Get-Content -LiteralPath $file.FullName)
+            $removeAt = [array]::FindIndex($lines, [Predicate[string]] { $args[0] -match 'Remove the environment file' })
+            $publishAt = [array]::FindIndex($lines, [Predicate[string]] { $args[0] -match '^\s*-\s*publish:' })
+
+            $removeAt | Should -BeGreaterThan 0 -Because "$($file.Name) has no cleanup step"
+            $publishAt | Should -BeGreaterThan 0 -Because "$($file.Name) has no publish step"
+            $removeAt | Should -BeLessThan $publishAt `
+                -Because "$($file.Name) must clean up before publishing, so a widened publish cannot pick the file up"
+        }
+    }
+
+    It 'never passes a secret on a command line' {
+        # A command line is visible to every other process on the agent, which is the
+        # audience a secret variable exists to keep it from. Secrets are mapped into
+        # the step's env: and read from there by name.
+        foreach ($file in $script:pipelineFiles) {
+            $content = Get-Content -Raw -LiteralPath $file.FullName
+            $content | Should -Not -Match '-\w*(Token|Password|Pat|Secret)\s+\$env:' `
+                -Because "$($file.Name) must not pass a credential as an argument"
+        }
+    }
+
+    It 'names secrets the way the automation resolves them' {
+        # A Variable Group secret is resolved from <NAME>_<ENVIRONMENT>. The pipeline
+        # used to export APP_ALPHA_PASSWORD and APP_BETA_PASSWORD, which match neither
+        # that scheme nor .env.example - so no secret ever resolved from a pipeline run
+        # and every group holding one was reported blocked. It failed safe and it was
+        # entirely inoperative.
+        $content = Get-Content -Raw -LiteralPath (
+            Join-Path (Get-RepositoryRoot) 'pipelines/variable-group-configuration.yml')
+
+        foreach ($environment in @('DEV', 'QA', 'PROD')) {
+            $content | Should -BeLike "*APP_SERVER_PASSWORD_$environment*" `
+                -Because 'the qualified name is the one Get-AdoVariableGroupSecretSource looks for'
+        }
+        $content | Should -Not -Match 'APP_(ALPHA|BETA)_PASSWORD'
+    }
+
+    It 'carries every credential variable the shipped connections declare' {
+        # A private key variable was declared in .env.example and exported by no
+        # pipeline, so a connection needing one could only ever be created with the
+        # sentinel.
+        $configuration = Get-Content -Raw -LiteralPath (
+            Join-Path (Get-RepositoryRoot) 'automations/service-connection-provisioning/config/service-connections.example.json') |
+            ConvertFrom-Json
+        $content = Get-Content -Raw -LiteralPath (
+            Join-Path (Get-RepositoryRoot) 'pipelines/service-connection-provisioning.yml')
+
+        foreach ($application in $configuration.applications) {
+            foreach ($environment in $application.environments) {
+                foreach ($property in $configuration.credentialVariables.PSObject.Properties) {
+                    $name = "$($property.Value)".Replace('{application}', "$($application.key)").Replace('{environment}', "$environment")
+                    $content | Should -BeLike "*$name*" `
+                        -Because "the pipeline must carry $name, which the configuration declares"
+                }
+            }
+        }
+    }
+}
+
+Describe 'Assert-ParameterValue' {
+
+    BeforeAll {
+        . (Join-Path (Get-RepositoryRoot) 'scripts/pipeline/PipelineParameters.ps1')
+    }
+
+    It 'rejects a value carrying a line break' {
+        # Even passed as data rather than as source, a value with a newline appends
+        # arbitrary KEY=VALUE lines to the environment file - enough to override
+        # ADO_PAT with a token of the caller's choosing.
+        { Assert-ParameterValue -Name 'project' -Value "Platform`nADO_PAT=stolen" } |
+            Should -Throw -ExpectedMessage '*line break*'
+    }
+
+    It 'rejects a carriage return as well as a newline' {
+        { Assert-ParameterValue -Name 'project' -Value "Platform`rADO_PAT=stolen" } |
+            Should -Throw -ExpectedMessage '*line break*'
+    }
+
+    It 'rejects a value that does not match its expected form' {
+        { Assert-ParameterValue -Name 'organizationUrl' -Value 'not-a-url' -Pattern '^https://' } |
+            Should -Throw -ExpectedMessage '*does not match the expected form*'
+    }
+
+    It 'throws on an empty value only when it is required' {
+        { Assert-ParameterValue -Name 'applicationKey' -Value '' -Required } |
+            Should -Throw -ExpectedMessage '*required and arrived empty*'
+        Assert-ParameterValue -Name 'applicationKey' -Value '' | Should -Be ''
+    }
+
+    It 'returns the trimmed value' {
+        Assert-ParameterValue -Name 'project' -Value '  Platform  ' | Should -Be 'Platform'
+    }
+
+    It 'accepts the shapes the pipelines actually pass' {
+        Assert-ParameterValue -Name 'organizationUrl' -Value 'https://dev.azure.com/contoso' -Required `
+            -Pattern '^https://[A-Za-z0-9][A-Za-z0-9.-]*/[A-Za-z0-9._~%-]+$' |
+            Should -Be 'https://dev.azure.com/contoso'
+    }
+}
