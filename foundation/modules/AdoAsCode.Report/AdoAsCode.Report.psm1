@@ -1,5 +1,5 @@
 <#
-    AdoAsCode.Report - evidence writing.
+    AdoAsCode.Report - evidence writing, and the progress log that points at it.
 
     Three artefacts, each answering a different question.
 
@@ -16,6 +16,10 @@
     Everything written here passes through Remove-SensitiveValue first. A report
     is the artefact most likely to be pasted into a chat window, so redaction
     belongs at the writer, not at each call site.
+
+    Write-AdoAsCodeLog is here too. A log line is not evidence - it is not kept and
+    nothing is approved from it - but it carries the same run id as the plan and the
+    receipt, which is what lets an operator holding one find the other.
 #>
 
 Set-StrictMode -Version Latest
@@ -138,6 +142,67 @@ function Remove-SensitiveValue {
         $copy[$property.Name] = Remove-SensitiveValue -InputObject $property.Value -Replacement $Replacement -Depth ($Depth - 1)
     }
     return [pscustomobject]$copy
+}
+
+function Write-AdoAsCodeLog {
+    <#
+    .SYNOPSIS
+        Writes one progress line, stamped with the time and the run it belongs to.
+
+    .DESCRIPTION
+        The information stream rather than the host, so a caller can capture or silence
+        it. That much was already true - and was implemented three times, identically,
+        once per entry point, two of which had lost the explanation when they were
+        copied. It lives here because it emits what a run reports, alongside the plan
+        and the receipt, and because the field that makes it useful comes from them.
+
+        That field is the run id. A pipeline log interleaves several runs and the module
+        name alone does not separate them; worse, an operator reading a log with a
+        receipt in the other hand had nothing joining the two. The last eight characters
+        of the run id appear on every line and in both artefacts.
+
+        A timestamp, because an agent log supplies one and a workstation run does not,
+        and reconstructing an incident from lines with no times is guesswork. UTC, to
+        match `generatedAt`.
+
+        Deliberately NOT here: the machine name. A log is the artefact least under
+        anyone's control about where it ends up.
+
+    .PARAMETER Module
+        Name of the automation, so interleaved logs stay attributable.
+
+    .PARAMETER Message
+        Text to write.
+
+    .PARAMETER RunId
+        Correlation id from the provenance block. Absent before provenance is built -
+        the offline validate path never builds one - and simply omitted then.
+
+    .PARAMETER Level
+        Severity tag. Progress by default.
+
+    .EXAMPLE
+        Write-AdoAsCodeLog -Module 'team-provisioning' -RunId $provenance.runId -Message 'Plan complete.'
+
+    .OUTPUTS
+        None. Writes to the information stream.
+    #>
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)] [string] $Module,
+        [Parameter(Mandatory)] [AllowEmptyString()] [string] $Message,
+        [string] $RunId,
+        [ValidateSet('info', 'warn')] [string] $Level = 'info'
+    )
+
+    $timestamp = (Get-Date).ToUniversalTime().ToString('HH:mm:ss')
+    $prefix = $Module
+    if (-not [string]::IsNullOrWhiteSpace($RunId) -and $RunId.Length -ge 8) {
+        $prefix = "$Module $($RunId.Substring($RunId.Length - 8))"
+    }
+    $tag = if ($Level -eq 'warn') { ' WARN' } else { '' }
+
+    Write-Information "$timestamp [$prefix]$tag $Message" -InformationAction Continue
 }
 
 function Save-Utf8File {
@@ -625,6 +690,7 @@ function Get-AdoAsCodeReceiptPath {
 Export-ModuleMember -Function @(
     'Remove-SensitiveValue',
     'New-AdoAsCodeProvenance',
+    'Write-AdoAsCodeLog',
     'Write-AdoAsCodeReport',
     'Format-AdoAsCodeReportMarkdown',
     'Save-AdoAsCodeReceipt',

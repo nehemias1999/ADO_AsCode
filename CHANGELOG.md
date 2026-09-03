@@ -87,6 +87,13 @@ breaking change to a schema is a major version, whatever the code did.
 
 ### Fixed
 
+- **Foundation** — one logger, `Write-AdoAsCodeLog`, replaces three identical copies of
+  `Write-ModuleLog` - two of which had lost the comment explaining why the information
+  stream is used when they were copied. Every line now carries a UTC timestamp, because
+  an agent log supplies one and a workstation run does not, and the last eight characters
+  of the `runId`, which is what lets an operator holding a receipt find the matching log
+  lines. The machine name is deliberately not in it: a log is the artefact least under
+  anyone's control about where it ends up.
 - **Foundation** — reports and receipts are written as UTF-8 **without** a byte order
   mark. `Set-Content -Encoding UTF8` emits one in Windows PowerShell 5.1, the floor this
   repository supports, so every artefact produced there began with three bytes a strict
