@@ -163,6 +163,10 @@ breaking change to a schema is a major version, whatever the code did.
   `-TestResultPath` for it, off by default. Added `timeout-minutes` so a hung test
   cannot consume a six-hour runner, and `concurrency` so a superseded push stops instead
   of being paid for and then ignored.
+- **CI** — line endings are checked against `.gitattributes`. It and `.editorconfig`
+  were declared and verified by nobody; re-applying the attributes to the index must be
+  a no-op, and when it is not, a file was committed with the line endings of whoever
+  committed it and the next person to touch it gets a diff of the whole file.
 - **CI** — added `CODEOWNERS`, `dependabot.yml` and a pull request template. `.github/`
   held a single file: no required reviewer was declared anywhere in version control, and
   the Definition of done lived in two documents and was carried to the PR form from
