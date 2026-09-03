@@ -181,7 +181,11 @@ a bug report and a guess.
 service shedding load. A `400`, `403`, `404` or `409` is a **real answer** — retrying
 one only multiplies whatever went wrong.
 
-**Rule.** Retry `429` and `5xx` with backoff. Nothing else.
+**Rule.** Retry with backoff, but only where a repeated request cannot create a second
+resource. The method matters as much as the status: see [Retry policy](#retry-policy)
+below for the rule this repository actually implements, which is narrower than "`429`
+and `5xx`" in one direction — `POST` is never retried — and wider in another, because a
+failure with no status at all is the most transient failure there is.
 
 ## 13. Newly created resources are not immediately queryable
 

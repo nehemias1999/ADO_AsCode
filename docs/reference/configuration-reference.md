@@ -37,7 +37,7 @@ rejected rather than accepted unchecked.
 | `ADO_PROJECT` | Yes | Team project name, matching the portal including case. |
 | `ADO_PAT` | Yes | Personal Access Token. See [getting-started.md](../guides/getting-started.md) for minimum scopes. |
 | `<APP>_MEMBERS` | Per application | Sign-in addresses, separated by `;`, `,` or newline. |
-| `<KEY>` for a secret Variable Group value | When writing such a group | Same name as the variable in the group. |
+| `<KEY>_<ENV>` for a secret Variable Group value | When writing such a group | The variable's own name, **qualified with the environment**: the secret `APP_SERVER_PASSWORD` in the PROD group is read from `APP_SERVER_PASSWORD_PROD`. The group name carries the environment and the secret's own name does not, and a live secret cannot be read back to compare against — so an unqualified name would let a DEV value be written over the PROD credential with the API reporting success. Leave one empty and the group is reported `blocked`, which is the safe outcome. `-AllowUnqualifiedSecretName` accepts the bare `<KEY>` instead, and is only correct when one credential is genuinely shared across every environment. |
 | `SFTP_<APP>_<ENV>_{HOST,USERNAME,PASSWORD,PRIVATE_KEY}` | When creating connections | Names derived from `credentialVariables`. |
 
 Format: `KEY=value`, one per line. `#` starts a comment. Surrounding single or double
@@ -57,7 +57,7 @@ Everything after the first `=` is the value, so `a=b=c` works.
 | `defaults.teamAdministratorMode` | No | `authenticatedUser` promotes the token identity; `none` leaves administration alone. |
 | `defaults.configurationSentinel` | Yes | The only value an automation will overwrite. |
 | `defaults.serviceConnection.*` | No | Type, authorization scheme, port, and `grantAccessToAllPipelines` (keep `false`). |
-| `naming.*` | Yes | Patterns for Team, Area Path, Iteration Path, Variable Group, Service Connection and approver group. |
+| `naming.*` | Yes | Patterns for Team, Area Path, Iteration Path, Variable Group and Service Connection. |
 | `automations.<module>.*` | Yes | Path registry, so an entry point has a default for every file it reads and a caller overrides only what differs. |
 
 ## 4. `applications.json` — team-provisioning

@@ -25,8 +25,7 @@
     "areaPath": "{project}\\{application}_Team",
     "iterationPath": "{project}\\{application}_Team\\{iteration}",
     "variableGroup": "Credentials_{application}_{environment}",
-    "serviceConnection": "SFTP_{application}_{environment}",
-    "approverGroup": "{application}_{environment}_Approvers"
+    "serviceConnection": "SFTP_{application}_{environment}"
   },
 
   "automations": {
