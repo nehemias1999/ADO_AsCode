@@ -30,12 +30,12 @@ The test suite is a consequence of that shape, not a bolt-on.
 | Board column reconciliation | `tests/foundation/Ado.Work.BoardColumns.Tests.ps1` | 18 |
 | Variable Group and connection write safety | `tests/foundation/Ado.Library.VariableGroups.Tests.ps1` | 31 |
 | Plan model, configuration loading, evidence writing, API reference drift | `tests/foundation/AdoAsCode.Core.Tests.ps1` | 30 |
-| Where a credential may be sent, and the retry policy | `tests/foundation/Ado.Rest.Tests.ps1` | 37 |
+| Where a credential may be sent, the retry policy, and request bounds | `tests/foundation/Ado.Rest.Tests.ps1` | 41 |
 | The protections carried by every outbound request | `tests/foundation/Ado.Rest.RequestParameters.Tests.ps1` | 6 |
 | The automation contract, the shipped examples, and the pipeline definitions | `tests/automations/Automations.Tests.ps1` | 29 |
 | Provenance, the progress log, and provenance at every evidence write | `tests/foundation/AdoAsCode.Provenance.Tests.ps1` | 16 |
 
-Total: **167**.
+Total: **171**.
 
 Every test in the first two files corresponds to a specific way a naive implementation
 destroys something:

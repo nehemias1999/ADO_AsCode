@@ -18,6 +18,10 @@
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
+# Latch for the reduced-schema warning below: the fact is about the host, not about any
+# one file, so it is stated once per process.
+$script:ReducedEngineWarned = $false
+
 # Environment variables a .env file may never set. Each one changes where the
 # interpreter finds code or executables, so allowing a configuration file to set it
 # turns .env into a code execution path. Compared case-insensitively, because the
@@ -496,7 +500,24 @@ function Get-AdoAsCodeConfiguration {
         throw "Configuration file '$Path' does not satisfy its schema ($($result.engine) validation):$([Environment]::NewLine)$detail"
     }
 
-    Write-Verbose "Validated '$Path' against '$SchemaPath' using $($result.engine) validation."
+    if ($result.engine -eq 'reduced' -and -not $script:ReducedEngineWarned) {
+        # Once per process. The fact is about the host, not about the file, and a run
+        # loading four configuration files does not need to be told four times - a
+        # warning repeated is a warning skimmed.
+        $script:ReducedEngineWarned = $true
+        # A warning, not a verbose line. "Valid" means something weaker here and the
+        # difference is invisible: the reduced engine ignores what it cannot check, so
+        # every `pattern` in every schema is skipped - including the ones constraining
+        # which environment variable a context may read, and the shapes of resource and
+        # variable names. A run that passed under this engine has not been told the
+        # same thing as one that passed under Test-Json, and nobody reads -Verbose to
+        # find out which they got.
+        Write-Warning ("Validated '$Path' with the reduced schema engine: this Windows PowerShell has no Test-Json -Schema, " +
+            'so string patterns, numeric bounds and composition keywords were not checked. PowerShell 7 validates fully.')
+    }
+    else {
+        Write-Verbose "Validated '$Path' against '$SchemaPath' using $($result.engine) validation."
+    }
     return $document
 }
 

@@ -148,6 +148,28 @@ Describe 'Remove-SecretFromText' {
     }
 }
 
+Describe 'Remove-SecretFromText, bare token shape' {
+
+    It 'masks a token with no scheme and no name in front of it' {
+        # Both existing rules need a cue - a scheme, or a name and a separator. A PAT
+        # can arrive with neither: in the body of a sign-in page, or a malformed query
+        # string. The shape rule already existed in the committed sensitive-data gate
+        # and was missing from the runtime masking, which is the half that reaches a
+        # thrown error message.
+        $token = 'a' * 52
+        $masked = Remove-SecretFromText -Text "Sign in failed. Reference $token for support."
+
+        $masked | Should -Not -BeLike "*$token*"
+        $masked | Should -BeLike '*Reference *** for support.*'
+    }
+
+    It 'leaves a longer identifier alone' {
+        # Bounded, so a commit SHA or a GUID-like run of alphanumerics is not mangled.
+        $identifier = 'b' * 60
+        Remove-SecretFromText -Text "id=$identifier" | Should -BeLike "*$identifier*"
+    }
+}
+
 Describe 'Get-AdoRetryDecision' {
 
     It 'retries a throttled GET' {
@@ -334,5 +356,28 @@ Describe 'Organization pinning' {
         $projectContext = [pscustomobject]@{ expectedOrganizationEnv = 'ADO_EXPECTED_ORG' }
 
         (Get-AdoContext -ProjectContext $projectContext).OrganizationName | Should -Be 'contoso'
+    }
+}
+
+Describe 'Invoke-AdoRestPaged bounds' {
+
+    It 'declares an upper bound on the pages it will fetch' {
+        # The exit condition of a continuation-token loop is supplied by the server, so
+        # a service or proxy repeating one token left this loop issuing requests
+        # forever - each carrying the Basic header - with no error and nothing to
+        # notice. Asserted on the contract rather than by driving a fake service,
+        # which would mean mocking the transport this suite deliberately does not mock.
+        $parameter = (Get-Command Invoke-AdoRestPaged).Parameters['MaximumPages']
+
+        $parameter | Should -Not -BeNullOrEmpty
+        $parameter.Attributes.TypeId.Name | Should -Contain 'ValidateRangeAttribute'
+    }
+
+    It 'defaults the bound well above any collection this repository reads' {
+        $default = (Get-Command Invoke-AdoRestPaged).Parameters['MaximumPages'].Attributes |
+            Where-Object { $_ -is [System.Management.Automation.ValidateRangeAttribute] }
+
+        $default.MinRange | Should -Be 1
+        $default.MaxRange | Should -BeGreaterThan 100
     }
 }
