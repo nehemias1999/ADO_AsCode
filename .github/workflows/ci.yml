@@ -118,6 +118,24 @@ jobs:
       - name: Check out the repository
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.3.0
 
+      # .gitattributes and .editorconfig were declared and verified by nobody. This is
+      # the half that can be checked mechanically: re-applying the attributes to the
+      # index must be a no-op. If it is not, something was committed with the line
+      # endings of whoever committed it, and the next person to touch that file gets a
+      # diff of the whole thing.
+      - name: Line endings match .gitattributes
+        shell: bash
+        run: |
+          set -euo pipefail
+          git add --renormalize .
+          if ! git diff --cached --quiet; then
+            echo "These files are committed with line endings .gitattributes does not ask for:"
+            git diff --cached --name-only
+            echo "Fix with: git add --renormalize . && git commit"
+            exit 1
+          fi
+          echo "Line endings check passed."
+
       - name: Every document is indexed and every internal link resolves
         shell: bash
         run: |
