@@ -34,8 +34,9 @@ The test suite is a consequence of that shape, not a bolt-on.
 | The protections carried by every outbound request | `tests/foundation/Ado.Rest.RequestParameters.Tests.ps1` | 6 |
 | The automation contract, the shipped examples, and the pipeline definitions | `tests/automations/Automations.Tests.ps1` | 29 |
 | Provenance, the progress log, and provenance at every evidence write | `tests/foundation/AdoAsCode.Provenance.Tests.ps1` | 16 |
+| The pure functions that had none, and the module manifests | `tests/foundation/PureFunctions.Tests.ps1` | 15 |
 
-Total: **171**.
+Total: **186**.
 
 Every test in the first two files corresponds to a specific way a naive implementation
 destroys something:
