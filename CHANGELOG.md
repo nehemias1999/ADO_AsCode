@@ -12,6 +12,17 @@ breaking change to a schema is a major version, whatever the code did.
 
 ### Fixed
 
+- **Docs** — `-AllowUnqualifiedSecretName` now has a `.PARAMETER` block. It was the only
+  parameter on the public surface with none, and it is the switch that turns off the
+  protection stopping a DEV value from being written over a PROD credential. A comment
+  in the `param()` block is not reachable from `Get-Help`.
+- **Docs** — the `rename` line in the command ladder said *Requires `-ConfirmRename`*,
+  where the code requires `-ConfirmApply` **and** `-ConfirmRename`. The `.PARAMETER`
+  block twenty lines below said so correctly, which is the worse kind of inconsistency:
+  both readings are in the same document.
+- **Docs** — comment-based help added to `Complete-Step`, `Get-Value`, `Test-AllowedMatch`
+  and `Get-ScannableFile`. `AGENTS.md` §7 requires help on every function; two of these
+  had none at all.
 - **Docs** — the test suite is described accurately again. `testing-strategy.md` listed
   four files totalling 68 tests; there are six files and 127, and the two missing ones
   are `Ado.Rest.Tests.ps1` and `Ado.Rest.RequestParameters.Tests.ps1` — a quarter of the

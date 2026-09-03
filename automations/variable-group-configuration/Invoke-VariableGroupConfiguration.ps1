@@ -57,6 +57,22 @@
 .PARAMETER ConfirmApply
     Required by apply. Without it, apply is a pure simulation.
 
+.PARAMETER AllowUnqualifiedSecretName
+    Accepts the bare <NAME> as the source of a secret, instead of requiring
+    <NAME>_<ENVIRONMENT>.
+
+    A Variable Group PUT sends the whole object, so a secret the automation cannot
+    resolve would be stored as an empty string - which is why an unresolved secret
+    blocks the write instead. The environment qualifier exists because the group name
+    carries the environment and the secret's own name does not, and a live secret
+    value cannot be read back to compare against: with a bare name, the DEV value of
+    APP_SERVER_PASSWORD is written over the PROD credential, the API reports success,
+    and nothing afterwards can detect it.
+
+    So this is opt-in, and it is only correct when one credential is genuinely shared
+    across every environment. Leaving a qualified variable empty and seeing the group
+    reported blocked is the safe outcome, not a problem to switch off.
+
 .EXAMPLE
     .\Invoke-VariableGroupConfiguration.ps1 -Command validate
 

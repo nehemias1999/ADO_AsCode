@@ -170,6 +170,30 @@ function Test-AllowedMatch {
     <#
     .SYNOPSIS
         Returns true when a matched string is an approved placeholder.
+
+    .DESCRIPTION
+        Every rule matches a shape, and a shape cannot tell a real credential from the
+        example of one that a document has to contain to be useful. The allow list is
+        how a rule stays strict without failing the build on its own documentation.
+
+        Widening an allow expression to clear a finding is how a gate stops being one,
+        so the expressions are anchored and name specific reserved domains and address
+        ranges rather than describing a general shape.
+
+    .PARAMETER Value
+        The matched text, exactly as the rule matched it.
+
+    .PARAMETER Allow
+        Regular expressions that mark a match as an approved placeholder. Empty means
+        the rule allows nothing, and every match is a finding.
+
+    .EXAMPLE
+        Test-AllowedMatch -Value 'user@contoso.com' -Allow @('(?i)@contoso\.com$')
+
+        Returns $true: the address is in an approved placeholder domain.
+
+    .OUTPUTS
+        [bool]
     #>
     [CmdletBinding()]
     [OutputType([bool])]
@@ -189,6 +213,28 @@ function Get-ScannableFile {
     .SYNOPSIS
         Enumerates candidate files under a root, skipping excluded trees and
         anything that does not look like text.
+
+    .DESCRIPTION
+        Excludes .git, .local and artifacts. Those exclusions are deliberate and each
+        has a different reason: .git holds history this gate cannot fix, .local is the
+        workstation scratch space where a real credential is allowed to sit, and
+        artifacts holds run output that records live values by design and is ignored
+        by Git anyway. Scanning them would produce findings nobody can act on, which
+        is how a gate gets switched off.
+
+        A file with no extension is read only if it looks like text, so a binary
+        cannot produce a spurious credential-shaped match.
+
+    .PARAMETER Root
+        Absolute path of the tree to scan, normally the repository root.
+
+    .EXAMPLE
+        Get-ScannableFile -Root (Get-Location).Path
+
+        Enumerates every scannable file below the current directory.
+
+    .OUTPUTS
+        FileInfo objects for the files a rule should be applied to.
     #>
     [CmdletBinding()]
     param([Parameter(Mandatory)] [string] $Root)

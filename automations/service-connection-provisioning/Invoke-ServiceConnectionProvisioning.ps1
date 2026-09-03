@@ -247,7 +247,32 @@ function Get-ConnectionCredential {
     [OutputType([pscustomobject])]
     param([Parameter(Mandatory)] [object] $Connection)
 
-    function Get-Value([string] $Name) {
+    function Get-Value {
+        <#
+        .SYNOPSIS
+            Reads one credential value from the process environment by variable name.
+
+        .DESCRIPTION
+            The configuration declares the NAME of a variable, never its value, so this
+            is the single point where a name becomes a credential. An unset or
+            unnamed variable yields $null rather than an empty string, because the
+            caller distinguishes the two: a missing credential leaves the connection at
+            the sentinel for the platform owner to complete, and an empty one would
+            silently write a blank.
+
+            Process scope explicitly. A machine or user variable holding a credential
+            is not something this automation should pick up by accident.
+
+        .PARAMETER Name
+            Name of the environment variable, taken from the connection's
+            credentialVariables. May be empty, for a credential this connection does
+            not declare.
+
+        .OUTPUTS
+            The value, or $null when the name is empty or the variable is unset.
+        #>
+        param([string] $Name)
+
         if ([string]::IsNullOrWhiteSpace($Name)) { return $null }
         return [Environment]::GetEnvironmentVariable($Name, 'Process')
     }
