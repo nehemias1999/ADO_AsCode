@@ -157,6 +157,15 @@ steps:
       PARAM_ENVIRONMENT: ${{ parameters.environment }}
       PARAM_CONFIRM_APPLY: ${{ parameters.confirmApply }}
 
+      # Mapped explicitly even though Azure DevOps exposes these to every step. An
+      # implicit dependency on the agent's environment is one nobody can find by
+      # reading this file, and provenance whose source is invisible is provenance
+      # nobody trusts. Runtime macros, not template expressions, so they stay data.
+      BUILD_SOURCEVERSION: $(Build.SourceVersion)
+      BUILD_BUILDID: $(Build.BuildId)
+      BUILD_REQUESTEDFOR: $(Build.RequestedFor)
+      BUILD_DEFINITIONNAME: $(Build.DefinitionName)
+      BUILD_SOURCEBRANCH: $(Build.SourceBranch)
   - powershell: |
       $ErrorActionPreference = 'Stop'
       .\scripts\pipeline\Remove-EnvironmentFile.ps1 -Path .env.pipeline

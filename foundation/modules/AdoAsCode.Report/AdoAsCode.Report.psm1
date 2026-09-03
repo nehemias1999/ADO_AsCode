@@ -140,6 +140,211 @@ function Remove-SensitiveValue {
     return [pscustomobject]$copy
 }
 
+function Save-Utf8File {
+    <#
+    .SYNOPSIS
+        Writes text as UTF-8 without a byte order mark.
+
+    .DESCRIPTION
+        Set-Content -Encoding UTF8 emits a BOM in Windows PowerShell 5.1, which is the
+        floor this repository supports - so every report and receipt produced there
+        began with three bytes that a strict JSON parser rejects. The two committed
+        examples carry it, which is how it was found.
+
+    .PARAMETER Path
+        Destination path. Relative paths resolve against the PowerShell location, not
+        the process working directory, which are not always the same.
+
+    .PARAMETER Content
+        The text to write.
+    #>
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)] [string] $Path,
+        [Parameter(Mandatory)] [AllowEmptyString()] [string] $Content
+    )
+
+    $fullPath = $Path
+    if (-not [System.IO.Path]::IsPathRooted($fullPath)) {
+        $fullPath = [System.IO.Path]::GetFullPath((Join-Path (Get-Location).ProviderPath $fullPath))
+    }
+    [System.IO.File]::WriteAllText($fullPath, $Content, (New-Object System.Text.UTF8Encoding($false)))
+}
+
+function Get-ProvenanceValue {
+    <#
+    .SYNOPSIS
+        Evaluates a probe and returns $null instead of throwing.
+
+    .DESCRIPTION
+        Structural rather than a convenience. Every field of a provenance block is
+        best-effort by definition - a run from a downloaded artefact has no .git, a
+        workstation has no build id, a locked-down host may refuse a query - and an
+        apply that refused to run because it could not read a commit SHA would have
+        traded the thing it was recording for the record of it.
+
+        A try/catch rather than a null check, because under Set-StrictMode -Version
+        Latest, which every file here sets, touching a missing property is itself a
+        terminating error.
+
+    .PARAMETER Probe
+        Script block producing the value.
+
+    .EXAMPLE
+        Get-ProvenanceValue -Probe { $env:COMPUTERNAME }
+    #>
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)] [scriptblock] $Probe
+    )
+
+    try {
+        $value = & $Probe
+        if ($value -is [string] -and [string]::IsNullOrWhiteSpace($value)) { return $null }
+        return $value
+    }
+    catch {
+        Write-Verbose "Provenance probe failed: $($_.Exception.Message)"
+        return $null
+    }
+}
+
+function New-AdoAsCodeProvenance {
+    <#
+    .SYNOPSIS
+        Builds the block recording who ran a command, from where, and at which commit.
+
+    .DESCRIPTION
+        A report said what would change and a receipt said what did. Neither said who,
+        nor from which revision of the declarations - and for a product whose premise is
+        that configuration is versioned in Git, that is the missing link: this PROD
+        Variable Group looks like this because of commit X, applied by that person.
+        Reconstructing it meant finding the build by date and reading its commit.
+
+        Every field is best-effort and any of them may be $null. Nothing here may fail a
+        run: the evidence is worth less than the change it records. `commitOrigin`
+        distinguishes "there is no commit" from "we did not look".
+
+        Build once per run and pass it to the writers. The receipt is rewritten after
+        every completed operation, so building it inside the writer would shell out to
+        git dozens of times in one apply.
+
+        Deliberately NOT resolved here: the Azure DevOps identity behind the token.
+        This module knows nothing about Azure DevOps (ADR 0004), so the entry point
+        looks it up and passes the display name in.
+
+    .PARAMETER Module
+        Name of the automation.
+
+    .PARAMETER Command
+        The verb being run.
+
+    .PARAMETER ActorDisplayName
+        Display name of the identity behind the access token, resolved by the caller.
+        Optional: a validate run has no credential at all.
+
+    .PARAMETER RunId
+        Override the generated correlation id. Injectable so a test, and the committed
+        examples, can assert on a fixed value.
+
+    .EXAMPLE
+        New-AdoAsCodeProvenance -Module 'team-provisioning' -Command 'apply' -ActorDisplayName 'Dana Reyes'
+
+    .OUTPUTS
+        PSCustomObject with runId, module, command, actor, origin, source and tool.
+    #>
+    # Pure function: it reads the environment and computes a value, changing no system
+    # state. The New- verb is what draws the rule; there is nothing here to confirm.
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '')]
+    [CmdletBinding()]
+    [OutputType([pscustomobject])]
+    param(
+        [Parameter(Mandatory)] [string] $Module,
+        [Parameter(Mandatory)] [string] $Command,
+        [string] $ActorDisplayName,
+        [string] $RunId
+    )
+
+    if (-not $RunId) {
+        # Sortable, collision-free, and short enough that the last eight characters
+        # work as a log prefix. Generated locally even on an agent: it identifies one
+        # execution of the script, where a build id survives a rerun of a failed stage.
+        $RunId = '{0}-{1}' -f (Get-Date).ToUniversalTime().ToString('yyyyMMddTHHmmssZ'),
+        ([guid]::NewGuid().ToString('N').Substring(0, 8))
+    }
+
+    $isPipeline = [bool] (Get-ProvenanceValue -Probe {
+            $env:TF_BUILD -eq 'True' -or $env:GITHUB_ACTIONS -eq 'true'
+        })
+
+    # A report is the artefact most likely to be pasted into a chat window, and it now
+    # carries an operator's name and a host name. That is the point - "from where" is
+    # half of provenance - but an environment with a stricter rule can drop the two
+    # identifying fields and keep runId, commit and buildId, which are what make the
+    # receipt useful.
+    $omitOrigin = -not [string]::IsNullOrWhiteSpace(
+        (Get-ProvenanceValue -Probe { $env:ADO_ASCODE_PROVENANCE_OMIT_ORIGIN }))
+
+    $commit = Get-ProvenanceValue -Probe { $env:BUILD_SOURCEVERSION }
+    $commitOrigin = 'environment'
+    if (-not $commit) {
+        $commit = Get-ProvenanceValue -Probe { $env:GITHUB_SHA }
+    }
+    if (-not $commit) {
+        $commitOrigin = 'git'
+        $commit = Get-ProvenanceValue -Probe {
+            $repositoryRoot = Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $PSScriptRoot))
+            # Guarded on .git existing. git walks upward, so without this an artefact
+            # unpacked inside some other checkout would report that repository's commit
+            # - confidently, and wrongly.
+            if (-not (Test-Path -LiteralPath (Join-Path $repositoryRoot '.git'))) { return $null }
+            if (-not (Get-Command git -ErrorAction SilentlyContinue)) { return $null }
+            $sha = & git -C $repositoryRoot rev-parse HEAD 2>$null
+            if ($LASTEXITCODE -ne 0) { return $null }
+            "$sha".Trim()
+        }
+    }
+    if (-not $commit) { $commitOrigin = 'unavailable' }
+
+    $origin = [ordered]@{
+        kind    = if ($isPipeline) { 'pipeline' } else { 'workstation' }
+        machine = if ($omitOrigin) { $null } else {
+            Get-ProvenanceValue -Probe {
+                if ($env:AGENT_MACHINENAME) { $env:AGENT_MACHINENAME } else { [Environment]::MachineName }
+            }
+        }
+    }
+    if ($isPipeline) {
+        $origin.pipeline = [ordered]@{
+            buildId        = Get-ProvenanceValue -Probe { $env:BUILD_BUILDID }
+            definitionName = Get-ProvenanceValue -Probe { $env:BUILD_DEFINITIONNAME }
+            requestedFor   = Get-ProvenanceValue -Probe { $env:BUILD_REQUESTEDFOR }
+        }
+    }
+
+    [pscustomobject]@{
+        runId   = $RunId
+        module  = $Module
+        command = $Command
+        actor   = [pscustomobject]([ordered]@{
+                adoDisplayName = if ([string]::IsNullOrWhiteSpace($ActorDisplayName)) { $null } else { $ActorDisplayName }
+                osUser         = if ($omitOrigin) { $null } else { Get-ProvenanceValue -Probe { [Environment]::UserName } }
+            })
+        origin  = [pscustomobject]$origin
+        source  = [pscustomobject]([ordered]@{
+                commit       = $commit
+                commitOrigin = $commitOrigin
+                branch       = Get-ProvenanceValue -Probe {
+                    if ($env:BUILD_SOURCEBRANCH) { $env:BUILD_SOURCEBRANCH } else { $env:GITHUB_REF }
+                }
+            })
+        tool    = [pscustomobject]([ordered]@{
+                powerShellVersion = "$($PSVersionTable.PSVersion)"
+                powerShellEdition = Get-ProvenanceValue -Probe { "$($PSVersionTable.PSEdition)" }
+            })
+    }
+}
+
 function Write-AdoAsCodeReport {
     <#
     .SYNOPSIS
@@ -167,8 +372,14 @@ function Write-AdoAsCodeReport {
     .PARAMETER Detail
         Optional extra object to embed, for example the inventory counts observed.
 
+    .PARAMETER Provenance
+        Block from New-AdoAsCodeProvenance, recording who ran the command and at which
+        commit. Optional so the writer stays usable without one; a test asserts that no
+        entry point omits it, because a report with no actor is the gap it was added to
+        close.
+
     .EXAMPLE
-        Write-AdoAsCodeReport -Plan $plan -Path 'artifacts/plans/team-provisioning-APP_ALPHA.json' -Module 'team-provisioning'
+        Write-AdoAsCodeReport -Plan $plan -Path 'artifacts/reports/team-provisioning-APP_ALPHA.json' -Module 'team-provisioning'
 
     .OUTPUTS
         PSCustomObject with JsonPath and MarkdownPath.
@@ -179,7 +390,8 @@ function Write-AdoAsCodeReport {
         [Parameter(Mandatory)] [object] $Plan,
         [Parameter(Mandatory)] [string] $Path,
         [Parameter(Mandatory)] [string] $Module,
-        [object] $Detail
+        [object] $Detail,
+        [object] $Provenance
     )
 
     $directory = Split-Path -Parent $Path
@@ -193,18 +405,21 @@ function Write-AdoAsCodeReport {
         command     = $Plan.command
         target      = $Plan.target
         generatedAt = $Plan.generatedAt
-        summary     = $summary
-        operations  = @($Plan.operations)
     }
+    if ($null -ne $Provenance) {
+        $report.provenance = $Provenance
+    }
+    $report.summary = $summary
+    $report.operations = @($Plan.operations)
     if ($PSBoundParameters.ContainsKey('Detail') -and $null -ne $Detail) {
         $report.detail = $Detail
     }
 
     $sanitized = Remove-SensitiveValue -InputObject ([pscustomobject]$report)
-    $sanitized | ConvertTo-Json -Depth 12 | Set-Content -LiteralPath $Path -Encoding UTF8
+    Save-Utf8File -Path $Path -Content ($sanitized | ConvertTo-Json -Depth 12)
 
     $markdownPath = [System.IO.Path]::ChangeExtension($Path, '.md')
-    (Format-AdoAsCodeReportMarkdown -Report $sanitized) | Set-Content -LiteralPath $markdownPath -Encoding UTF8
+    Save-Utf8File -Path $markdownPath -Content (Format-AdoAsCodeReportMarkdown -Report $sanitized)
 
     Write-Verbose "Wrote report '$Path' and summary '$markdownPath'."
     return [pscustomobject]@{ JsonPath = $Path; MarkdownPath = $markdownPath }
@@ -216,7 +431,7 @@ function Format-AdoAsCodeReportMarkdown {
         Renders a report object as Markdown.
 
     .DESCRIPTION
-        Pure function, so the rendering is covered by a test without touching the
+        Pure function, so the rendering is covered by tests without touching the
         file system. Operations are grouped by status, with the ones needing
         attention first, because that is the order a reviewer reads in.
 
@@ -240,6 +455,43 @@ function Format-AdoAsCodeReportMarkdown {
     $lines.Add('')
     $lines.Add("Generated at $($Report.generatedAt) (UTC).")
     $lines.Add('')
+
+    # Guarded, and it has to be. Under Set-StrictMode -Version Latest, reading a missing
+    # property throws, and a report built without provenance is a shape this function
+    # still has to render - the parameter is optional and the tests build one.
+    if ($Report.PSObject.Properties.Name -contains 'provenance' -and $null -ne $Report.provenance) {
+        $p = $Report.provenance
+        $lines.Add('## Provenance')
+        $lines.Add('')
+        $lines.Add('| Field | Value |')
+        $lines.Add('| --- | --- |')
+        # Flattened to four rows on purpose: someone reading the Markdown summary wants
+        # to know who and from where, not to navigate a nested object. 'not recorded'
+        # rather than a blank, so a missing value reads as "we looked and could not
+        # tell" instead of as a rendering fault.
+        $notRecorded = 'not recorded'
+        $lines.Add("| Run | $($p.runId) |")
+
+        $actor = "$($p.actor.adoDisplayName)"
+        if ([string]::IsNullOrWhiteSpace($actor)) { $actor = $notRecorded }
+        $osUser = "$($p.actor.osUser)"
+        if (-not [string]::IsNullOrWhiteSpace($osUser)) { $actor = "$actor (as $osUser)" }
+        $lines.Add("| Actor | $actor |")
+
+        $origin = "$($p.origin.kind)"
+        if (-not [string]::IsNullOrWhiteSpace("$($p.origin.machine)")) { $origin = "$origin on $($p.origin.machine)" }
+        if ($p.origin.PSObject.Properties.Name -contains 'pipeline' -and $null -ne $p.origin.pipeline) {
+            $origin = "$origin, build $($p.origin.pipeline.buildId), queued by $($p.origin.pipeline.requestedFor)"
+        }
+        $lines.Add("| Origin | $origin |")
+
+        $commit = "$($p.source.commit)"
+        if ([string]::IsNullOrWhiteSpace($commit)) { $commit = $notRecorded }
+        if (-not [string]::IsNullOrWhiteSpace("$($p.source.branch)")) { $commit = "$commit ($($p.source.branch))" }
+        $lines.Add("| Commit | $commit |")
+        $lines.Add('')
+    }
+
     $lines.Add('## Summary')
     $lines.Add('')
     $lines.Add('| Status | Count |')
@@ -304,6 +556,11 @@ function Save-AdoAsCodeReceipt {
     .PARAMETER Message
         Optional note, typically the failure reason.
 
+    .PARAMETER Provenance
+        Block from New-AdoAsCodeProvenance. The same object the report carries, so its
+        runId joins the two - and a receipt detached from its build still names the
+        commit it came from.
+
     .EXAMPLE
         Save-AdoAsCodeReceipt -Path $receiptPath -Target 'APP_ALPHA' -Status in_progress -CompletedOperations $done
     #>
@@ -313,7 +570,8 @@ function Save-AdoAsCodeReceipt {
         [Parameter(Mandatory)] [string] $Target,
         [Parameter(Mandatory)] [ValidateSet('in_progress', 'completed', 'failed')] [string] $Status,
         [AllowEmptyCollection()] [object[]] $CompletedOperations = @(),
-        [string] $Message = ''
+        [string] $Message = '',
+        [object] $Provenance
     )
 
     $directory = Split-Path -Parent $Path
@@ -321,16 +579,21 @@ function Save-AdoAsCodeReceipt {
         New-Item -ItemType Directory -Force -Path $directory | Out-Null
     }
 
-    $receipt = [pscustomobject]@{
-        generatedAt         = (Get-Date).ToUniversalTime().ToString('o')
-        target              = $Target
-        status              = $Status
-        message             = $Message
-        completedOperations = @($CompletedOperations)
+    # Ordered, not a plain hashtable literal. The field order of a receipt used to be
+    # incidental, and this is a file people read.
+    $receipt = [ordered]@{
+        generatedAt = (Get-Date).ToUniversalTime().ToString('o')
     }
+    if ($null -ne $Provenance) {
+        $receipt.provenance = $Provenance
+    }
+    $receipt.target = $Target
+    $receipt.status = $Status
+    $receipt.message = $Message
+    $receipt.completedOperations = @($CompletedOperations)
 
-    $sanitized = Remove-SensitiveValue -InputObject $receipt
-    $sanitized | ConvertTo-Json -Depth 12 | Set-Content -LiteralPath $Path -Encoding UTF8
+    $sanitized = Remove-SensitiveValue -InputObject ([pscustomobject]$receipt)
+    Save-Utf8File -Path $Path -Content ($sanitized | ConvertTo-Json -Depth 12)
 }
 
 function Get-AdoAsCodeReceiptPath {
@@ -361,6 +624,7 @@ function Get-AdoAsCodeReceiptPath {
 
 Export-ModuleMember -Function @(
     'Remove-SensitiveValue',
+    'New-AdoAsCodeProvenance',
     'Write-AdoAsCodeReport',
     'Format-AdoAsCodeReportMarkdown',
     'Save-AdoAsCodeReceipt',

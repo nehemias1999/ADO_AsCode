@@ -28,11 +28,25 @@ Service Connection exists and will not be touched. One `warning` about a Variabl
 key nobody declared, preserved rather than removed. And every operation carries a
 reason written for the person approving it.
 
+The report now opens with a **Provenance** block: which run produced it, who ran
+it, from where, and at which commit. A receipt carrying the same `runId` is what
+joins the two, and the commit is what ties a live Variable Group back to the
+declaration that produced it.
+
 ---
 
 # team-provisioning: plan - APP_ALPHA
 
 Generated at 2026-01-15T09:12:44.0000000Z (UTC).
+
+## Provenance
+
+| Field | Value |
+| --- | --- |
+| Run | 20260115T091244Z-7f3a9c21 |
+| Actor | Dana Reyes (as svc-ado-agent) |
+| Origin | pipeline on BUILD-AGENT-07, build 4821, queued by Dana Reyes |
+| Commit | 9f1c2ab4d7e83f5109b6c2d84a71fe30cbb59d12 (refs/heads/main) |
 
 ## Summary
 
@@ -78,4 +92,3 @@ Generated at 2026-01-15T09:12:44.0000000Z (UTC).
 | Team work configuration | APP_ALPHA_Team | exists | Backlog iteration is set and the default Area Path is 'Platform\APP_ALPHA_Team'. |
 | Team member | dana.reyes@contoso.com | exists | Already a member. |
 | Work Item type | Issue | validate | Exists, and every mapped state is valid (3 state(s)). |
-

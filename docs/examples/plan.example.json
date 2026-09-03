@@ -1,8 +1,35 @@
-﻿{
+{
     "module":  "team-provisioning",
     "command":  "plan",
     "target":  "APP_ALPHA",
     "generatedAt":  "2026-01-15T09:12:44.0000000Z",
+    "provenance":  {
+                       "runId":  "20260115T091244Z-7f3a9c21",
+                       "module":  "team-provisioning",
+                       "command":  "plan",
+                       "actor":  {
+                                     "adoDisplayName":  "Dana Reyes",
+                                     "osUser":  "svc-ado-agent"
+                                 },
+                       "origin":  {
+                                      "kind":  "pipeline",
+                                      "machine":  "BUILD-AGENT-07",
+                                      "pipeline":  {
+                                                       "buildId":  "4821",
+                                                       "definitionName":  "team-provisioning",
+                                                       "requestedFor":  "Dana Reyes"
+                                                   }
+                                  },
+                       "source":  {
+                                      "commit":  "9f1c2ab4d7e83f5109b6c2d84a71fe30cbb59d12",
+                                      "commitOrigin":  "environment",
+                                      "branch":  "refs/heads/main"
+                                  },
+                       "tool":  {
+                                    "powerShellVersion":  "5.1.26100.8875",
+                                    "powerShellEdition":  "Desktop"
+                                }
+                   },
     "summary":  {
                     "total":  12,
                     "ok":  5,

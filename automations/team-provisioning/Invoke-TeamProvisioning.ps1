@@ -649,6 +649,10 @@ function Invoke-TeamProvisioningApply {
     .PARAMETER ProjectContext
         Shared project context.
 
+    .PARAMETER Provenance
+        Provenance block, written into every receipt this function saves so an
+        interrupted run still records who was running it and from which commit.
+
     .PARAMETER ReceiptPath
         Where to write the incremental receipt.
 
@@ -657,7 +661,7 @@ function Invoke-TeamProvisioningApply {
 
     .EXAMPLE
         Invoke-TeamProvisioningApply -Context $context -Project $project -Application $application `
-            -BoardColumns $boardColumns -ProjectContext $projectContext -ReceiptPath $receiptPath
+            -BoardColumns $boardColumns -ProjectContext $projectContext -ReceiptPath $receiptPath -Provenance $script:provenance
 
     .OUTPUTS
         The completed operations.
@@ -671,6 +675,7 @@ function Invoke-TeamProvisioningApply {
         [Parameter(Mandatory)] [object] $BoardColumns,
         [Parameter(Mandatory)] [object] $ProjectContext,
         [Parameter(Mandatory)] [string] $ReceiptPath,
+        [object] $Provenance,
         [bool] $AllowCreate = $true
     )
 
@@ -716,7 +721,7 @@ function Invoke-TeamProvisioningApply {
             detail   = $Detail
         }) | Out-Null
 
-        Save-AdoAsCodeReceipt -Path $ReceiptPath -Target "$($Application.key)" -Status 'in_progress' `
+        Save-AdoAsCodeReceipt -Provenance $Provenance -Path $ReceiptPath -Target "$($Application.key)" -Status 'in_progress' `
             -CompletedOperations @($completed.ToArray())
         Write-ModuleLog "$Action $Resource '$Name': $Detail"
     }
@@ -828,12 +833,12 @@ function Invoke-TeamProvisioningApply {
                 -Detail "Reconciled. Changes: $($reconciled.reasons -join '; ')"
         }
 
-        Save-AdoAsCodeReceipt -Path $ReceiptPath -Target "$($Application.key)" -Status 'completed' `
+        Save-AdoAsCodeReceipt -Provenance $Provenance -Path $ReceiptPath -Target "$($Application.key)" -Status 'completed' `
             -CompletedOperations @($completed.ToArray()) `
             -Message "Applied $($completed.Count) operation(s)."
     }
     catch {
-        Save-AdoAsCodeReceipt -Path $ReceiptPath -Target "$($Application.key)" -Status 'failed' `
+        Save-AdoAsCodeReceipt -Provenance $Provenance -Path $ReceiptPath -Target "$($Application.key)" -Status 'failed' `
             -CompletedOperations @($completed.ToArray()) `
             -Message "$($_.Exception.Message)"
         throw
@@ -1055,6 +1060,23 @@ if ($Command -in $script:ApplicationScopedCommands -and -not $ApplicationKey) {
 Import-AdoAsCodeEnvironment -Path $environmentFiles | Out-Null
 
 $context = Get-AdoContext -ProjectContext $projectContext
+
+# Built once per run, not inside the writers: the receipt is rewritten after every
+# completed operation, so building it there would shell out to git dozens of times in
+# one apply. The identity lookup is best effort - a run must not fail because it could
+# not find out who was running it, since the report is the thing that would be lost.
+# It lives here rather than in AdoAsCode.Report because that module knows nothing about
+# Azure DevOps (ADR 0004).
+$adoActor = $null
+try {
+    $adoActor = "$((Get-AdoAuthenticatedUser -Context $context).authenticatedUser.providerDisplayName)"
+}
+catch {
+    Write-Verbose "Could not resolve the authenticated identity: $($_.Exception.Message)"
+}
+$script:provenance = New-AdoAsCodeProvenance -Module $moduleName -Command $Command -ActorDisplayName $adoActor
+$script:runId = $script:provenance.runId
+Write-ModuleLog "run $($script:runId)"
 $project = Get-AdoProject -Context $context
 Write-ModuleLog "Connected to '$($context.OrganizationUrl)' project '$($project.name)'."
 
@@ -1085,7 +1107,7 @@ if ($Command -eq 'inventory') {
     }
 
     if (-not $ReportPath) { $ReportPath = Join-Path $repoRoot "artifacts/reports/$moduleName-inventory.json" }
-    Write-AdoAsCodeReport -Plan $plan -Path $ReportPath -Module $moduleName -Detail ([pscustomobject]@{ applications = @($inventory.ToArray()) }) | Out-Null
+    Write-AdoAsCodeReport -Plan $plan -Path $ReportPath -Module $moduleName -Provenance $script:provenance -Detail ([pscustomobject]@{ applications = @($inventory.ToArray()) }) | Out-Null
     Write-PlanSummary -Plan $plan
     Write-ModuleLog "Report: $ReportPath"
     return $plan
@@ -1102,7 +1124,7 @@ if ($Command -eq 'rename') {
     Write-PlanSummary -Plan $plan
 
     if (-not ($ConfirmApply -and $ConfirmRename)) {
-        Write-AdoAsCodeReport -Plan $plan -Path $ReportPath -Module $moduleName | Out-Null
+        Write-AdoAsCodeReport -Plan $plan -Path $ReportPath -Module $moduleName -Provenance $script:provenance | Out-Null
         Write-ModuleLog 'Simulation only: rename requires both -ConfirmApply and -ConfirmRename. Nothing was modified.'
         Write-ModuleLog "Report: $ReportPath"
         return $plan
@@ -1125,12 +1147,12 @@ if ($Command -eq 'rename') {
             $completed.Add([pscustomobject]@{ resource = 'Area Path'; name = $operation.name; action = 'rename'; detail = 'Renamed. System.AreaPath was rewritten on every Work Item below the node.' }) | Out-Null
         }
 
-        Save-AdoAsCodeReceipt -Path $receiptPath -Target $ApplicationKey -Status 'in_progress' -CompletedOperations @($completed.ToArray())
+        Save-AdoAsCodeReceipt -Provenance $script:provenance -Path $receiptPath -Target $ApplicationKey -Status 'in_progress' -CompletedOperations @($completed.ToArray())
     }
 
-    Save-AdoAsCodeReceipt -Path $receiptPath -Target $ApplicationKey -Status 'completed' `
+    Save-AdoAsCodeReceipt -Provenance $script:provenance -Path $receiptPath -Target $ApplicationKey -Status 'completed' `
         -CompletedOperations @($completed.ToArray()) -Message "Renamed $($completed.Count) resource(s)."
-    Write-AdoAsCodeReport -Plan $plan -Path $ReportPath -Module $moduleName | Out-Null
+    Write-AdoAsCodeReport -Plan $plan -Path $ReportPath -Module $moduleName -Provenance $script:provenance | Out-Null
     Write-ModuleLog "Rename complete. Report: $ReportPath"
     return $plan
 }
@@ -1143,13 +1165,13 @@ Write-PlanSummary -Plan $plan
 
 switch ($Command) {
     'plan' {
-        Write-AdoAsCodeReport -Plan $plan -Path $ReportPath -Module $moduleName | Out-Null
+        Write-AdoAsCodeReport -Plan $plan -Path $ReportPath -Module $moduleName -Provenance $script:provenance | Out-Null
         Write-ModuleLog "Report: $ReportPath"
     }
 
     'smoke' {
         $checklist = New-TeamProvisioningSmokeChecklist -Application $application -Project $project -BoardColumns $boardColumns
-        Write-AdoAsCodeReport -Plan $plan -Path $ReportPath -Module $moduleName `
+        Write-AdoAsCodeReport -Plan $plan -Path $ReportPath -Module $moduleName -Provenance $script:provenance `
             -Detail ([pscustomobject]@{ manualVerification = @($checklist) }) | Out-Null
 
         Write-ModuleLog 'Manual verification checklist:'
@@ -1160,7 +1182,7 @@ switch ($Command) {
     default {
         # apply and reconcile
         if (-not $ConfirmApply) {
-            Write-AdoAsCodeReport -Plan $plan -Path $ReportPath -Module $moduleName | Out-Null
+            Write-AdoAsCodeReport -Plan $plan -Path $ReportPath -Module $moduleName -Provenance $script:provenance | Out-Null
             Write-ModuleLog "Simulation only: '$Command' requires -ConfirmApply. Nothing was modified."
             Write-ModuleLog "Report: $ReportPath"
             return $plan
@@ -1170,10 +1192,10 @@ switch ($Command) {
 
         $receiptPath = Get-AdoAsCodeReceiptPath -ReportPath $ReportPath
         $completed = @(Invoke-TeamProvisioningApply -Context $context -Project $project -Application $application `
-            -BoardColumns $boardColumns -ProjectContext $projectContext -ReceiptPath $receiptPath `
+            -BoardColumns $boardColumns -ProjectContext $projectContext -ReceiptPath $receiptPath -Provenance $script:provenance `
             -AllowCreate ($Command -eq 'apply'))
 
-        Write-AdoAsCodeReport -Plan $plan -Path $ReportPath -Module $moduleName `
+        Write-AdoAsCodeReport -Plan $plan -Path $ReportPath -Module $moduleName -Provenance $script:provenance `
             -Detail ([pscustomobject]@{ appliedOperations = $completed }) | Out-Null
 
         Write-ModuleLog "$Command complete: $($completed.Count) operation(s) written."

@@ -165,6 +165,11 @@ What is *not* a correct response is forcing the write. There is no switch for it
 | Non-secret value written | Setting it back in the portal, or resetting the key to the sentinel and re-running. The receipt records the previous value where there was one. |
 | Secret re-posted | The value re-posted is whatever `<NAME>_<ENVIRONMENT>` held in the environment of the run — **not** necessarily the value that was in effect, because the live value cannot be read back to compare. If a pipeline starts failing on authentication after an apply, have the owner set the secret again, and check which variable the run resolved. |
 
+Every receipt carries a **provenance** block naming the run, the identity behind the
+token, the machine or build, and the commit the declarations came from — so a
+rollback starts from a record of what changed *and* of which declaration produced
+it. See [verification-and-evidence.md](../process/verification-and-evidence.md).
+
 ## 10. Deliberately not implemented
 
 - **Deleting a variable or a group.** Every writer is additive.

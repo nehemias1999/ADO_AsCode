@@ -10,6 +10,34 @@ breaking change to a schema is a major version, whatever the code did.
 
 ## [Unreleased]
 
+### Added
+
+- **Foundation** — every report and receipt now records **who** ran the command and **at
+  which commit**. `New-AdoAsCodeProvenance` builds a block carrying a `runId`, the
+  identity behind the access token, the OS user, the machine or build, and the commit
+  SHA; `Write-AdoAsCodeReport` and `Save-AdoAsCodeReceipt` take it and write it into
+  both, so the same `runId` joins a log line, a plan and a receipt. For a product whose
+  premise is that configuration is versioned in Git, the missing answer was *this PROD
+  Variable Group looks like this because of which commit?* — `$(Build.BuildId)` appeared
+  only in the artifact's **name**, so a receipt downloaded and attached to a ticket said
+  nothing about where it came from. The three pipelines map `BUILD_SOURCEVERSION`,
+  `BUILD_BUILDID`, `BUILD_REQUESTEDFOR`, `BUILD_DEFINITIONNAME` and
+  `BUILD_SOURCEBRANCH` explicitly rather than relying on the agent's ambient
+  environment, because provenance whose source is invisible is provenance nobody trusts.
+- **Foundation** — no field of the block may fail a run. Every probe returns `$null`
+  rather than throwing, and `commitOrigin` distinguishes *there is no commit* from
+  *nobody looked*: an apply that stopped because it could not read a SHA would have
+  traded the change for the record of it. The commit is read from the environment first
+  and from `git` only when a `.git` directory is actually present — `git` walks upward,
+  so an artefact unpacked inside another checkout would otherwise report that
+  repository's commit, confidently and wrongly.
+  `ADO_ASCODE_PROVENANCE_OMIT_ORIGIN` drops the machine name and OS user while keeping
+  `runId`, `commit` and `buildId`.
+- **Notes on idempotency** — `runId` differs on every run, so two `plan` reports for
+  unchanged input are no longer byte-identical. `generatedAt` already had that property.
+  Idempotence is a claim about the operations, which is what the re-plan reads, but
+  Definition of done #6 asks for the difference to be stated rather than discovered.
+
 ### Security
 
 - **Pipelines** — `.env.pipeline` is removed with `condition: always()`, before the
@@ -59,6 +87,14 @@ breaking change to a schema is a major version, whatever the code did.
 
 ### Fixed
 
+- **Foundation** — reports and receipts are written as UTF-8 **without** a byte order
+  mark. `Set-Content -Encoding UTF8` emits one in Windows PowerShell 5.1, the floor this
+  repository supports, so every artefact produced there began with three bytes a strict
+  JSON parser rejects. Both committed examples carried it, which is how it was found.
+- **Foundation** — `variable-group-configuration` wrote its evidence to
+  `artifacts/plans/` while the other two used `artifacts/reports/`. Nothing explained or
+  enforced the difference, so a plan was simply not where someone would look for it. All
+  three now use `artifacts/reports/`.
 - **Quality gate** — a PSScriptAnalyzer `Warning` now fails `Invoke-Tests.ps1`. Only
   `Error` did, and almost every rule this repository relies on is a Warning:
   `PSUseShouldProcessForStateChangingFunctions`, `PSAvoidUsingEmptyCatchBlock`,
