@@ -20,7 +20,9 @@
       apply      Creates and reconciles. Requires -ConfirmApply.
       reconcile  Same as apply but refuses to create a Team, so it can only correct
                  an application that already exists.
-      rename     Renames the Team and its Area Path. Requires -ConfirmRename.
+      rename     Renames the Team and its Area Path. Requires -ConfirmApply AND
+                 -ConfirmRename: it is the one operation here that rewrites
+                 System.AreaPath on every Work Item below the path.
 
     What this never does: delete a Team, a path, a member or a Board column; touch
     Service Connections, pipelines or project-level permissions; or commit a
@@ -676,6 +678,35 @@ function Invoke-TeamProvisioningApply {
     $completed = New-Object System.Collections.ArrayList
 
     function Complete-Step {
+        <#
+        .SYNOPSIS
+            Records one finished operation and rewrites the receipt.
+
+        .DESCRIPTION
+            Called after every operation that actually completed, never before one is
+            attempted. The receipt is rewritten each time rather than once at the end,
+            because the run this matters for is the one that did not reach the end: a
+            receipt left at in_progress is itself the signal that the run was
+            interrupted, and its completedOperations list is what an operator resumes
+            from.
+
+            Nested inside the apply function on purpose, so it closes over $completed
+            and $ReceiptPath. Promoting it would mean threading both through every
+            call site for no gain.
+
+        .PARAMETER Resource
+            The kind of thing that changed - Team, Area Path, Board, membership.
+
+        .PARAMETER Name
+            The name of the specific resource, as it exists in Azure DevOps.
+
+        .PARAMETER Action
+            What was done to it, from the plan's action vocabulary.
+
+        .PARAMETER Detail
+            One line written for the person reading the receipt afterwards, not for a
+            log parser.
+        #>
         param([string] $Resource, [string] $Name, [string] $Action, [string] $Detail)
 
         $completed.Add([pscustomobject]@{
