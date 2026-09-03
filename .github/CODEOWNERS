@@ -1,0 +1,15 @@
+# Review is required on every path, and this is where "required by whom" is written
+# down. Branch protection lives in GitHub settings and is not versioned; this file is,
+# so the intent survives a settings change.
+
+*                                   @nehemias1999
+
+# The paths where a mistake is not recoverable by editing a file: what may receive the
+# access token, what is written into a Variable Group, and what a pipeline runs on an
+# agent that holds the credentials.
+/foundation/modules/Ado.Rest/       @nehemias1999
+/foundation/modules/Ado.Library/    @nehemias1999
+/scripts/pipeline/                  @nehemias1999
+/pipelines/                         @nehemias1999
+/.github/                           @nehemias1999
+/SECURITY.md                        @nehemias1999

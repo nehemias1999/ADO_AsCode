@@ -122,6 +122,25 @@ breaking change to a schema is a major version, whatever the code did.
   `artifacts/plans/` while the other two used `artifacts/reports/`. Nothing explained or
   enforced the difference, so a plan was simply not where someone would look for it. All
   three now use `artifacts/reports/`.
+- **CI** — the quality gate runs on **both** editions. It ran only under Windows
+  PowerShell 5.1, which is exactly where `Test-Json -Schema` does not exist - so the
+  full schema validation path, the one that actually enforces the `pattern` in every
+  schema, was never exercised anywhere. `fail-fast: false`, because knowing that 5.1
+  failed and 7 passed is the diagnosis.
+- **CI** — Pester and PSScriptAnalyzer are pinned to exact versions and the actions to
+  commit SHAs. With a minimum version only, a new release turned `main` red without
+  anybody changing a line, and the first thing anyone debugged was code that had not
+  moved. A mutable tag on an action is a promise that whoever controls the tag will not
+  change what runs in a job holding this repository's token.
+- **CI** — Pester results are written as NUnit XML and published as an artifact, so a
+  failing run leaves something better than a scrolling log. `Invoke-Tests.ps1` gained
+  `-TestResultPath` for it, off by default. Added `timeout-minutes` so a hung test
+  cannot consume a six-hour runner, and `concurrency` so a superseded push stops instead
+  of being paid for and then ignored.
+- **CI** — added `CODEOWNERS`, `dependabot.yml` and a pull request template. `.github/`
+  held a single file: no required reviewer was declared anywhere in version control, and
+  the Definition of done lived in two documents and was carried to the PR form from
+  memory, which is the point at which a row gets skipped.
 - **Quality gate** — a PSScriptAnalyzer `Warning` now fails `Invoke-Tests.ps1`. Only
   `Error` did, and almost every rule this repository relies on is a Warning:
   `PSUseShouldProcessForStateChangingFunctions`, `PSAvoidUsingEmptyCatchBlock`,

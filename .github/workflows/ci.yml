@@ -14,42 +14,83 @@ on:
 permissions:
   contents: read
 
+# A second push to the same branch makes the first run's answer worthless. Cancel it
+# rather than paying for both and reading the wrong one.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   quality-gate:
-    # windows-latest because Windows PowerShell 5.1 is the stated support floor, and
-    # this is where that claim is actually exercised rather than assumed.
+    # Both editions, because the repository claims both and the difference is not
+    # cosmetic: Windows PowerShell 5.1 has no Test-Json -Schema, so it validates
+    # configuration with the reduced engine that skips every `pattern` in every schema.
+    # Running only 5.1 meant the strong validation path was never exercised anywhere;
+    # running only 7 would have meant the supported floor never was.
+    name: quality gate (${{ matrix.edition }})
     runs-on: windows-latest
+    timeout-minutes: 20
+
+    strategy:
+      # Both results, always. Knowing that 5.1 failed and 7 passed is the diagnosis;
+      # cancelling the sibling job throws it away.
+      fail-fast: false
+      matrix:
+        include:
+          - edition: Windows PowerShell 5.1
+            shell: powershell
+            slug: ps51
+          - edition: PowerShell 7
+            shell: pwsh
+            slug: ps7
 
     steps:
+      # Pinned to a commit, not a tag. A tag is mutable, so `@v4` is a promise that
+      # whoever controls the tag will not change what runs in a job holding this
+      # repository's token.
       - name: Check out the repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.3.0
 
       - name: Report the PowerShell version under test
-        shell: powershell
+        shell: ${{ matrix.shell }}
         run: |
           $PSVersionTable | Format-List | Out-String | Write-Host
           Write-Host "Test-Json -Schema available: $([bool]((Get-Command Test-Json -ErrorAction SilentlyContinue) -and (Get-Command Test-Json).Parameters.ContainsKey('Schema')))"
 
       - name: Install the test tooling
-        shell: powershell
+        shell: ${{ matrix.shell }}
         run: |
           $ErrorActionPreference = 'Stop'
           Set-PSRepository -Name PSGallery -InstallationPolicy Trusted
-          Install-Module Pester -MinimumVersion 5.5 -Scope CurrentUser -Force -SkipPublisherCheck
-          Install-Module PSScriptAnalyzer -Scope CurrentUser -Force
+          # Exact versions. With a minimum only, a new release of either module turns
+          # `main` red without anybody having changed a line - and the first thing you
+          # then debug is code that did not move. Raising these is a commit somebody
+          # reviews.
+          Install-Module Pester -RequiredVersion 6.1.0 -Scope CurrentUser -Force -SkipPublisherCheck
+          Install-Module PSScriptAnalyzer -RequiredVersion 1.25.0 -Scope CurrentUser -Force
           # Test-time only. The automations themselves have no dependency beyond
           # PowerShell, which is what lets them run on a locked-down workstation.
 
       - name: Check the prerequisites without writing anything
-        shell: powershell
+        shell: ${{ matrix.shell }}
         run: ./scripts/bootstrap.ps1 -CheckOnly
 
       - name: Run the quality gate
-        shell: powershell
-        run: ./scripts/Invoke-Tests.ps1
+        shell: ${{ matrix.shell }}
+        run: ./scripts/Invoke-Tests.ps1 -TestResultPath "artifacts/test-results/pester-${{ matrix.slug }}.xml"
+
+      - name: Publish the test results
+        # always(), because the run this is wanted for is the one that failed.
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: pester-${{ matrix.slug }}
+          path: artifacts/test-results/
+          if-no-files-found: warn
+          retention-days: 14
 
       - name: Validate every automation offline
-        shell: powershell
+        shell: ${{ matrix.shell }}
         run: |
           $ErrorActionPreference = 'Stop'
           # Proves the claim the guides make: validate needs no credentials. This job
@@ -60,10 +101,11 @@ jobs:
 
   documentation:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
 
     steps:
       - name: Check out the repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.3.0
 
       - name: Every document is indexed and every internal link resolves
         shell: bash

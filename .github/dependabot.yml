@@ -1,0 +1,19 @@
+version: 2
+
+# The workflow pins its actions to commit SHAs and its PowerShell modules to exact
+# versions, which is what makes a CI run reproducible - and also what makes it go stale
+# silently. This is the other half of that decision: the pins get raised by a pull
+# request somebody reviews, rather than by a minimum-version range picking up whatever
+# was published overnight.
+#
+# PSGallery is deliberately absent: Dependabot does not cover it, so Pester and
+# PSScriptAnalyzer in .github/workflows/ci.yml are raised by hand. Named here so the
+# next person does not assume they are being watched.
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: monthly
+    open-pull-requests-limit: 3
+    commit-message:
+      prefix: ci
