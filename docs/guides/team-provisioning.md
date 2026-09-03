@@ -175,3 +175,8 @@ means deleting a Team, and a Team carries Work Items.
 | Area Path renamed | Not reversible in practice. See section 7. |
 
 Read the receipt first. It is the only record of what the run actually changed.
+
+The receipt also carries a **provenance** block naming the run, the identity behind
+the token, the machine or build, and the commit the declarations came from — so a
+rollback starts from a record of what changed *and* of which declaration produced
+it. See [verification-and-evidence.md](../process/verification-and-evidence.md).

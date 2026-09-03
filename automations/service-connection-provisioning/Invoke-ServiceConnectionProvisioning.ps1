@@ -413,11 +413,15 @@ function Invoke-ServiceConnectionApply {
     .PARAMETER Sentinel
         The configuration sentinel.
 
+    .PARAMETER Provenance
+        Provenance block, written into every receipt this function saves so an
+        interrupted run still records who was running it and from which commit.
+
     .PARAMETER ReceiptPath
         Where to write the incremental receipt.
 
     .EXAMPLE
-        Invoke-ServiceConnectionApply -Context $context -Project $project -Declared $declared -Sentinel $sentinel -ReceiptPath $receiptPath
+        Invoke-ServiceConnectionApply -Context $context -Project $project -Declared $declared -Sentinel $sentinel -ReceiptPath $receiptPath -Provenance $script:provenance
 
     .OUTPUTS
         The completed operations.
@@ -429,7 +433,8 @@ function Invoke-ServiceConnectionApply {
         [Parameter(Mandatory)] [object] $Project,
         [Parameter(Mandatory)] [AllowEmptyCollection()] [object[]] $Declared,
         [Parameter(Mandatory)] [string] $Sentinel,
-        [Parameter(Mandatory)] [string] $ReceiptPath
+        [Parameter(Mandatory)] [string] $ReceiptPath,
+        [object] $Provenance
     )
 
     $completed = New-Object System.Collections.ArrayList
@@ -468,15 +473,15 @@ function Invoke-ServiceConnectionApply {
                 detail   = "Created on port $($connection.port) using $credentialKind."
             }) | Out-Null
 
-            Save-AdoAsCodeReceipt -Path $ReceiptPath -Target $targetLabel -Status 'in_progress' -CompletedOperations @($completed.ToArray())
+            Save-AdoAsCodeReceipt -Provenance $Provenance -Path $ReceiptPath -Target $targetLabel -Status 'in_progress' -CompletedOperations @($completed.ToArray())
             Write-ModuleLog "created '$($connection.name)' using $credentialKind"
         }
 
-        Save-AdoAsCodeReceipt -Path $ReceiptPath -Target $targetLabel -Status 'completed' `
+        Save-AdoAsCodeReceipt -Provenance $Provenance -Path $ReceiptPath -Target $targetLabel -Status 'completed' `
             -CompletedOperations @($completed.ToArray()) -Message "Created $($completed.Count) connection(s)."
     }
     catch {
-        Save-AdoAsCodeReceipt -Path $ReceiptPath -Target $targetLabel -Status 'failed' `
+        Save-AdoAsCodeReceipt -Provenance $Provenance -Path $ReceiptPath -Target $targetLabel -Status 'failed' `
             -CompletedOperations @($completed.ToArray()) -Message "$($_.Exception.Message)"
         throw
     }
@@ -551,6 +556,23 @@ if ($Command -eq 'validate') {
 
 Import-AdoAsCodeEnvironment -Path $EnvFile | Out-Null
 $context = Get-AdoContext -ProjectContext $projectContext
+
+# Built once per run, not inside the writers: the receipt is rewritten after every
+# completed operation, so building it there would shell out to git dozens of times in
+# one apply. The identity lookup is best effort - a run must not fail because it could
+# not find out who was running it, since the report is the thing that would be lost.
+# It lives here rather than in AdoAsCode.Report because that module knows nothing about
+# Azure DevOps (ADR 0004).
+$adoActor = $null
+try {
+    $adoActor = "$((Get-AdoAuthenticatedUser -Context $context).authenticatedUser.providerDisplayName)"
+}
+catch {
+    Write-Verbose "Could not resolve the authenticated identity: $($_.Exception.Message)"
+}
+$script:provenance = New-AdoAsCodeProvenance -Module $moduleName -Command $Command -ActorDisplayName $adoActor
+$script:runId = $script:provenance.runId
+Write-ModuleLog "run $($script:runId)"
 $project = Get-AdoProject -Context $context
 Write-ModuleLog "Connected to '$($context.OrganizationUrl)' project '$($project.name)'."
 
@@ -575,7 +597,7 @@ if ($Command -eq 'inventory') {
             -Action 'validate' -Status 'ok' -Reason $reason)
     }
 
-    Write-AdoAsCodeReport -Plan $plan -Path $ReportPath -Module $moduleName | Out-Null
+    Write-AdoAsCodeReport -Plan $plan -Path $ReportPath -Module $moduleName -Provenance $script:provenance | Out-Null
     Write-PlanSummary -Plan $plan
     Write-ModuleLog "Report: $ReportPath"
     return $plan
@@ -586,7 +608,7 @@ Write-PlanSummary -Plan $plan
 
 switch ($Command) {
     'plan' {
-        Write-AdoAsCodeReport -Plan $plan -Path $ReportPath -Module $moduleName | Out-Null
+        Write-AdoAsCodeReport -Plan $plan -Path $ReportPath -Module $moduleName -Provenance $script:provenance | Out-Null
         Write-ModuleLog "Report: $ReportPath"
     }
 
@@ -598,7 +620,7 @@ switch ($Command) {
             [pscustomobject]@{ step = 4; check = 'Each connection grants access only to the pipelines that need it. None should be open to all pipelines.' }
             [pscustomobject]@{ step = 5; check = 'Re-run plan. Existing connections should read as protected, and nothing as pending.' }
         )
-        Write-AdoAsCodeReport -Plan $plan -Path $ReportPath -Module $moduleName `
+        Write-AdoAsCodeReport -Plan $plan -Path $ReportPath -Module $moduleName -Provenance $script:provenance `
             -Detail ([pscustomobject]@{ manualVerification = $checklist }) | Out-Null
 
         Write-ModuleLog 'Manual verification checklist:'
@@ -608,7 +630,7 @@ switch ($Command) {
 
     default {
         if (-not $ConfirmApply) {
-            Write-AdoAsCodeReport -Plan $plan -Path $ReportPath -Module $moduleName | Out-Null
+            Write-AdoAsCodeReport -Plan $plan -Path $ReportPath -Module $moduleName -Provenance $script:provenance | Out-Null
             Write-ModuleLog 'Simulation only: apply requires -ConfirmApply. Nothing was modified.'
             Write-ModuleLog "Report: $ReportPath"
             return $plan
@@ -618,9 +640,9 @@ switch ($Command) {
 
         $receiptPath = Get-AdoAsCodeReceiptPath -ReportPath $ReportPath
         $completed = @(Invoke-ServiceConnectionApply -Context $context -Project $project -Declared $declared `
-            -Sentinel $sentinel -ReceiptPath $receiptPath)
+            -Sentinel $sentinel -ReceiptPath $receiptPath -Provenance $script:provenance)
 
-        Write-AdoAsCodeReport -Plan $plan -Path $ReportPath -Module $moduleName `
+        Write-AdoAsCodeReport -Plan $plan -Path $ReportPath -Module $moduleName -Provenance $script:provenance `
             -Detail ([pscustomobject]@{ appliedOperations = $completed }) | Out-Null
 
         Write-ModuleLog "apply complete: $($completed.Count) connection(s) created."

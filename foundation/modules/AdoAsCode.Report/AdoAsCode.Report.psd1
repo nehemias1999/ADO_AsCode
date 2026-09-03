@@ -12,6 +12,7 @@
 
     FunctionsToExport = @(
         'Remove-SensitiveValue',
+        'New-AdoAsCodeProvenance',
         'Write-AdoAsCodeReport',
         'Format-AdoAsCodeReportMarkdown',
         'Save-AdoAsCodeReceipt',

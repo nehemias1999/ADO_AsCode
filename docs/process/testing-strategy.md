@@ -33,10 +33,9 @@ The test suite is a consequence of that shape, not a bolt-on.
 | Where a credential may be sent, and the retry policy | `tests/foundation/Ado.Rest.Tests.ps1` | 37 |
 | The protections carried by every outbound request | `tests/foundation/Ado.Rest.RequestParameters.Tests.ps1` | 6 |
 | The automation contract, the shipped examples, and the pipeline definitions | `tests/automations/Automations.Tests.ps1` | 29 |
+| Provenance, and its presence at every evidence write | `tests/foundation/AdoAsCode.Provenance.Tests.ps1` | 12 |
 
-Total: **151**. The two `Ado.Rest` files are the newer half of the suite and were
-missing from this table, which is how a document describing the test suite came to
-omit a quarter of it.
+Total: **163**.
 
 Every test in the first two files corresponds to a specific way a naive implementation
 destroys something:

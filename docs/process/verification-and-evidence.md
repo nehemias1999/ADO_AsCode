@@ -28,6 +28,28 @@ Each answers a different question, and none substitutes for another. A successfu
 apply says the API accepted the requests; only the re-plan says the live state now
 matches the declaration, and only the checklist says a human can use it.
 
+### Who, and from which commit
+
+The plan and the receipt each carry a **provenance** block: a `runId`, the identity
+behind the access token, the operating-system user, the machine or build, and the
+commit SHA of the declarations the run was made from.
+
+That last field is the one the set was missing. The premise of this repository is that
+configuration is versioned in Git, and until it was recorded there was no way to answer
+*this PROD Variable Group looks like this because of which commit?* — reconstructing it
+meant finding the build by date and reading its commit. The `runId` is what joins a log
+line to a report to a receipt, so a receipt that has been detached from its build and
+pasted into a ticket still names the change it came from.
+
+Every field is best-effort and any may be absent. Nothing in the block may fail a run:
+the evidence is worth less than the change it records, so an apply never stops because
+it could not read a SHA. `commitOrigin` distinguishes *there is no commit* from *nobody
+looked*.
+
+One consequence worth stating: `runId` is new on every run, so two `plan` reports for
+unchanged input are no longer byte-identical. `generatedAt` already had that property.
+Idempotence is a claim about the **operations**, which is what the re-plan reads.
+
 ## 2. The plan is the approval artefact
 
 A plan is a flat list of operations, each with a resource, a name, an action, a status

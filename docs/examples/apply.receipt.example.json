@@ -1,5 +1,32 @@
-﻿{
-    "generatedAt":  "2026-08-26T23:52:00.7651902Z",
+{
+    "generatedAt":  "2026-09-03T01:22:30.1092072Z",
+    "provenance":  {
+                       "runId":  "20260115T091244Z-7f3a9c21",
+                       "module":  "team-provisioning",
+                       "command":  "apply",
+                       "actor":  {
+                                     "adoDisplayName":  "Dana Reyes",
+                                     "osUser":  "svc-ado-agent"
+                                 },
+                       "origin":  {
+                                      "kind":  "pipeline",
+                                      "machine":  "BUILD-AGENT-07",
+                                      "pipeline":  {
+                                                       "buildId":  "4821",
+                                                       "definitionName":  "team-provisioning",
+                                                       "requestedFor":  "Dana Reyes"
+                                                   }
+                                  },
+                       "source":  {
+                                      "commit":  "9f1c2ab4d7e83f5109b6c2d84a71fe30cbb59d12",
+                                      "commitOrigin":  "environment",
+                                      "branch":  "refs/heads/main"
+                                  },
+                       "tool":  {
+                                    "powerShellVersion":  "5.1.26100.8875",
+                                    "powerShellEdition":  "Desktop"
+                                }
+                   },
     "target":  "APP_ALPHA",
     "status":  "completed",
     "message":  "Applied 5 operation(s).",

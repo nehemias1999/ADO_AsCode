@@ -146,3 +146,9 @@ the portal.
 | Created with the sentinel | Deleting it in **Project settings > Service connections**. Nothing depended on it yet, because it had no working credential. |
 | Created with a real credential | Deleting it after confirming no pipeline references it. The receipt records which credential *kind* was used, never the value. |
 | Updated with both force switches | Not reversible from here. Azure DevOps never returned the previous credential, so it was never recorded. Have its owner set it again. That asymmetry is exactly why the two switches exist. |
+
+
+Every receipt carries a **provenance** block naming the run, the identity behind the
+token, the machine or build, and the commit the declarations came from — so a
+rollback starts from a record of what changed *and* of which declaration produced
+it. See [verification-and-evidence.md](../process/verification-and-evidence.md).

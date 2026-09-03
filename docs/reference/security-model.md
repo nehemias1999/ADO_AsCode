@@ -106,6 +106,25 @@ than a configuration field on purpose: trusting a host with a credential should 
 visible in a diff at the call site.
 
 
+## 2c. What provenance records, and what that exposes
+
+Every report and receipt carries a `runId`, the display name of the identity behind the
+token, the operating-system user, the machine or build id, and the commit SHA of the
+declarations. It is what lets a change in Azure DevOps be traced back to the commit that
+declared it and the person who applied it.
+
+It is worth being explicit that this **adds** two identifying values to an artefact:
+
+| Concern | Answer |
+| --- | --- |
+| Do real names and host names reach Git? | No. Runtime artefacts live in `artifacts/`, which `.gitignore` excludes and which `Test-NoSensitiveData.ps1` does not scan. The committed examples use invented placeholders. |
+| Do they reach a build artefact? | Yes, deliberately — inside your own Azure DevOps, that is the intended audience. A plan report is also the artefact most likely to be pasted into a chat window. |
+| Can that be turned off? | Set `ADO_ASCODE_PROVENANCE_OMIT_ORIGIN` to any value. `origin.machine` and `actor.osUser` become null; `runId`, `commit` and `buildId` survive, which are the fields that make the receipt useful. |
+
+No field may fail a run. An apply that stopped because it could not read a commit SHA
+would have traded the change for the record of it, so every probe returns null instead
+of throwing, and `commitOrigin` says whether there was no commit or nobody looked.
+
 ## 3. The sentinel
 
 `PENDING_OWNER_CONFIGURATION` is the only **non-secret** value an automation will

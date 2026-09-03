@@ -626,6 +626,10 @@ function Invoke-VariableGroupApply {
     .PARAMETER Sentinel
         The configuration sentinel.
 
+    .PARAMETER Provenance
+        Provenance block, written into every receipt this function saves so an
+        interrupted run still records who was running it and from which commit.
+
     .PARAMETER ReceiptPath
         Where to write the incremental receipt.
 
@@ -635,7 +639,7 @@ function Invoke-VariableGroupApply {
         the failure mode of the bare name is silent: a DEV value written over PROD.
 
     .EXAMPLE
-        Invoke-VariableGroupApply -Context $context -Project $project -Scope $scope -Row $rows -Target $targets -Sentinel $sentinel -ReceiptPath $receiptPath
+        Invoke-VariableGroupApply -Context $context -Project $project -Scope $scope -Row $rows -Target $targets -Sentinel $sentinel -ReceiptPath $receiptPath -Provenance $script:provenance
 
     .OUTPUTS
         The completed operations.
@@ -650,6 +654,7 @@ function Invoke-VariableGroupApply {
         [Parameter(Mandatory)] [AllowEmptyCollection()] [object[]] $Target,
         [Parameter(Mandatory)] [string] $Sentinel,
         [Parameter(Mandatory)] [string] $ReceiptPath,
+        [object] $Provenance,
         [switch] $AllowUnqualifiedSecretName
     )
 
@@ -691,7 +696,7 @@ function Invoke-VariableGroupApply {
                     action   = 'create'
                     detail   = "Created with $($definition.Count) declared key(s)."
                 }) | Out-Null
-                Save-AdoAsCodeReceipt -Path $ReceiptPath -Target $targetLabel -Status 'in_progress' -CompletedOperations @($completed.ToArray())
+                Save-AdoAsCodeReceipt -Provenance $Provenance -Path $ReceiptPath -Target $targetLabel -Status 'in_progress' -CompletedOperations @($completed.ToArray())
                 Write-ModuleLog "created Variable Group '$groupName' with $($definition.Count) key(s)"
                 continue
             }
@@ -736,15 +741,15 @@ function Invoke-VariableGroupApply {
                 action   = 'set'
                 detail   = "Wrote $(@($payload.applied).Count) key(s); re-posted $($payload.secretCount) secret(s) in the same request."
             }) | Out-Null
-            Save-AdoAsCodeReceipt -Path $ReceiptPath -Target $targetLabel -Status 'in_progress' -CompletedOperations @($completed.ToArray())
+            Save-AdoAsCodeReceipt -Provenance $Provenance -Path $ReceiptPath -Target $targetLabel -Status 'in_progress' -CompletedOperations @($completed.ToArray())
             Write-ModuleLog "Variable Group '$groupName': wrote $(@($payload.applied).Count) key(s)"
         }
 
-        Save-AdoAsCodeReceipt -Path $ReceiptPath -Target $targetLabel -Status 'completed' `
+        Save-AdoAsCodeReceipt -Provenance $Provenance -Path $ReceiptPath -Target $targetLabel -Status 'completed' `
             -CompletedOperations @($completed.ToArray()) -Message "Applied $($completed.Count) operation(s)."
     }
     catch {
-        Save-AdoAsCodeReceipt -Path $ReceiptPath -Target $targetLabel -Status 'failed' `
+        Save-AdoAsCodeReceipt -Provenance $Provenance -Path $ReceiptPath -Target $targetLabel -Status 'failed' `
             -CompletedOperations @($completed.ToArray()) -Message "$($_.Exception.Message)"
         throw
     }
@@ -815,6 +820,23 @@ if ($Command -in $script:WritingCommands -and -not $ApplicationKey) {
 
 Import-AdoAsCodeEnvironment -Path $EnvFile | Out-Null
 $context = Get-AdoContext -ProjectContext $projectContext
+
+# Built once per run, not inside the writers: the receipt is rewritten after every
+# completed operation, so building it there would shell out to git dozens of times in
+# one apply. The identity lookup is best effort - a run must not fail because it could
+# not find out who was running it, since the report is the thing that would be lost.
+# It lives here rather than in AdoAsCode.Report because that module knows nothing about
+# Azure DevOps (ADR 0004).
+$adoActor = $null
+try {
+    $adoActor = "$((Get-AdoAuthenticatedUser -Context $context).authenticatedUser.providerDisplayName)"
+}
+catch {
+    Write-Verbose "Could not resolve the authenticated identity: $($_.Exception.Message)"
+}
+$script:provenance = New-AdoAsCodeProvenance -Module $moduleName -Command $Command -ActorDisplayName $adoActor
+$script:runId = $script:provenance.runId
+Write-ModuleLog "run $($script:runId)"
 $project = Get-AdoProject -Context $context
 Write-ModuleLog "Connected to '$($context.OrganizationUrl)' project '$($project.name)'."
 
@@ -857,7 +879,7 @@ if ($targets.Count -eq 0) {
 
 if (-not $ReportPath) {
     $suffix = if ($ApplicationKey -and $Environment) { "-$ApplicationKey-$Environment" } elseif ($ApplicationKey) { "-$ApplicationKey" } else { '' }
-    $ReportPath = Join-Path $repoRoot "artifacts/plans/$moduleName-$Command$suffix.json"
+    $ReportPath = Join-Path $repoRoot "artifacts/reports/$moduleName-$Command$suffix.json"
 }
 
 if ($Command -eq 'inventory') {
@@ -880,7 +902,7 @@ if ($Command -eq 'inventory') {
             -Reason "variables=$(@($group.variables.PSObject.Properties).Count); secret=$secrets; awaiting configuration=$pending")
     }
 
-    Write-AdoAsCodeReport -Plan $plan -Path $ReportPath -Module $moduleName | Out-Null
+    Write-AdoAsCodeReport -Plan $plan -Path $ReportPath -Module $moduleName -Provenance $script:provenance | Out-Null
     Write-PlanSummary -Plan $plan
     Write-ModuleLog "Report: $ReportPath"
     return $plan
@@ -892,7 +914,7 @@ Write-PlanSummary -Plan $plan
 
 switch ($Command) {
     'plan' {
-        Write-AdoAsCodeReport -Plan $plan -Path $ReportPath -Module $moduleName | Out-Null
+        Write-AdoAsCodeReport -Plan $plan -Path $ReportPath -Module $moduleName -Provenance $script:provenance | Out-Null
         Write-ModuleLog "Report: $ReportPath"
     }
 
@@ -904,7 +926,7 @@ switch ($Command) {
             [pscustomobject]@{ step = 4; check = 'No group in a lower environment contains a key forbidden there.' }
             [pscustomobject]@{ step = 5; check = 'Re-run plan. Every operation should be ok or protected, and none pending.' }
         )
-        Write-AdoAsCodeReport -Plan $plan -Path $ReportPath -Module $moduleName `
+        Write-AdoAsCodeReport -Plan $plan -Path $ReportPath -Module $moduleName -Provenance $script:provenance `
             -Detail ([pscustomobject]@{ manualVerification = $checklist }) | Out-Null
 
         Write-ModuleLog 'Manual verification checklist:'
@@ -914,7 +936,7 @@ switch ($Command) {
 
     default {
         if (-not $ConfirmApply) {
-            Write-AdoAsCodeReport -Plan $plan -Path $ReportPath -Module $moduleName | Out-Null
+            Write-AdoAsCodeReport -Plan $plan -Path $ReportPath -Module $moduleName -Provenance $script:provenance | Out-Null
             Write-ModuleLog 'Simulation only: apply requires -ConfirmApply. Nothing was modified.'
             Write-ModuleLog "Report: $ReportPath"
             return $plan
@@ -924,10 +946,10 @@ switch ($Command) {
 
         $receiptPath = Get-AdoAsCodeReceiptPath -ReportPath $ReportPath
         $completed = @(Invoke-VariableGroupApply -Context $context -Project $project -Scope $scope `
-            -Row $csv.rows -Target @($targets.ToArray()) -Sentinel $sentinel -ReceiptPath $receiptPath `
+            -Row $csv.rows -Target @($targets.ToArray()) -Sentinel $sentinel -ReceiptPath $receiptPath -Provenance $script:provenance `
             -AllowUnqualifiedSecretName:$AllowUnqualifiedSecretName)
 
-        Write-AdoAsCodeReport -Plan $plan -Path $ReportPath -Module $moduleName `
+        Write-AdoAsCodeReport -Plan $plan -Path $ReportPath -Module $moduleName -Provenance $script:provenance `
             -Detail ([pscustomobject]@{ appliedOperations = $completed }) | Out-Null
 
         Write-ModuleLog "apply complete: $($completed.Count) operation(s) written."
