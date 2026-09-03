@@ -222,7 +222,15 @@ Describe 'New-AdoSshServiceEndpointPayload' {
         $payload = New-AdoSshServiceEndpointPayload -Project $script:project -Name 'SFTP_APP_TEST_DEV' `
             -ServerHost 'sftp.example.invalid' -Username 'svc_deploy' -PrivateKey $script:privateKey
 
-        @($payload.data.Keys) | Should -Be @('Host', 'Port')
+        # Asserted as a set, not a sequence. `data` is a plain hashtable, whose key
+        # enumeration order PowerShell does not guarantee - and it genuinely differs
+        # between editions: this assertion passed on Windows PowerShell 5.1 for as long
+        # as it existed and failed on PowerShell 7 the first time CI ran there, with
+        # 'Port', 'Host' instead of 'Host', 'Port'. The property that matters is which
+        # keys are present, and ordering was never part of it.
+        @($payload.data.Keys) | Should -HaveCount 2
+        @($payload.data.Keys) | Should -Contain 'Host'
+        @($payload.data.Keys) | Should -Contain 'Port'
         ($payload.data.Values -join ' ') | Should -Not -BeLike "*$($script:keyMarker)*"
     }
 
