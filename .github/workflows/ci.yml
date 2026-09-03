@@ -41,15 +41,20 @@ jobs:
       - name: Check out the repository
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.3.0
 
-      - name: Report both PowerShell versions under test
+      # Printed per edition, because the answer differs and that difference is the
+      # reason both are run: 5.1 reports Test-Json -Schema as False, so it validates
+      # configuration with the reduced engine.
+      - name: Report the Windows PowerShell 5.1 version under test
         shell: powershell
         run: |
-          $report = {
-            "$($PSVersionTable.PSEdition) $($PSVersionTable.PSVersion) - Test-Json -Schema: " +
-              [bool]((Get-Command Test-Json -ErrorAction SilentlyContinue) -and (Get-Command Test-Json).Parameters.ContainsKey('Schema'))
-          }
-          Write-Host (& $report)
-          Write-Host (pwsh -NoProfile -Command $report.ToString())
+          Write-Host "$($PSVersionTable.PSEdition) $($PSVersionTable.PSVersion)"
+          Write-Host "Test-Json -Schema available: $([bool]((Get-Command Test-Json -ErrorAction SilentlyContinue) -and (Get-Command Test-Json).Parameters.ContainsKey('Schema')))"
+
+      - name: Report the PowerShell 7 version under test
+        shell: pwsh
+        run: |
+          Write-Host "$($PSVersionTable.PSEdition) $($PSVersionTable.PSVersion)"
+          Write-Host "Test-Json -Schema available: $([bool]((Get-Command Test-Json -ErrorAction SilentlyContinue) -and (Get-Command Test-Json).Parameters.ContainsKey('Schema')))"
 
       # Exact versions. With a minimum only, a new release of either module turns `main`
       # red without anybody having changed a line - and the first thing you then debug is
