@@ -19,6 +19,11 @@
       "description": "Name of the environment variable holding the team project name.",
       "pattern": "^[A-Z][A-Z0-9_]*$"
     },
+    "expectedOrganizationEnv": {
+      "type": "string",
+      "description": "Optional. Name of the environment variable holding the organization this configuration belongs to. When it is declared and set, Get-AdoContext refuses to run if the organization URL resolves to a different organization. A host allowlist cannot catch that: every organization on dev.azure.com shares one permitted host, so a mistyped or tampered organization URL otherwise receives the token. The name is versioned; the value is not, because an organization name is itself sensitive.",
+      "pattern": "^[A-Z][A-Z0-9_]*$"
+    },
 
     "environments": {
       "type": "array",

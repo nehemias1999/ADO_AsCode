@@ -10,6 +10,33 @@ breaking change to a schema is a major version, whatever the code did.
 
 ## [Unreleased]
 
+### Security
+
+- **Foundation** — the identity host is derived from the organization URL instead of
+  being the literal `https://vssps.dev.azure.com/<organization>`. That literal is right
+  for Azure DevOps Services and wrong everywhere else, and the failure mode is
+  disclosure rather than a failed run: with an Azure DevOps Server collection, every
+  `Get-AdoIdentity`, `Get-AdoGraphDescriptor`, `Get-AdoSecurityGroup` and
+  `Add-AdoTeamMember` call sent the **on-premises** token to Microsoft's cloud in a
+  Basic header, while the `Core` calls went to the right place — so the run partly
+  succeeded and looked legitimate. It is the scenario `Assert-AdoOrganizationUrl` exists
+  to prevent, reached from the other side. `New-AdoUri` now reads `IdentityUrl` from the
+  context and throws if it is absent, rather than defaulting to a host the caller never
+  named.
+- **Foundation** — `*.visualstudio.com` is matched as a single anchored label. The
+  suffix test accepted `anything.delegated.contoso.visualstudio.com`, so one delegated
+  label under a legacy organization's zone named a host the token would be sent to.
+- **Foundation** — the legacy organization name is read from the subdomain. It was taken
+  from the last path segment, so `https://contoso.visualstudio.com/DefaultCollection`
+  resolved to organization `DefaultCollection` — which was then pasted into the
+  hardcoded identity host, making both the host and the organization wrong at once.
+- **Foundation** — `expectedOrganizationEnv`, an optional field in
+  `project-context.json`, pins the organization a configuration belongs to. A host
+  allowlist cannot answer *which* organization: every organization on `dev.azure.com`
+  shares one permitted host, so a mistyped or tampered `ADO_ORG_URL` naming somebody
+  else's organization passed every check and received the token. Opt-in by presence of a
+  value, so no existing configuration changes behaviour.
+
 ### Fixed
 
 - **Quality gate** — a PSScriptAnalyzer `Warning` now fails `Invoke-Tests.ps1`. Only

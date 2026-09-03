@@ -71,13 +71,35 @@ which host receives the `Basic` header, it is validated before a context is buil
 | Rule | Enforced by |
 | --- | --- |
 | Scheme must be `https` | `Assert-AdoOrganizationUrl` |
-| Host must be `dev.azure.com`, a `*.visualstudio.com` host, or one named in `-AllowedHost` | `Assert-AdoOrganizationUrl` |
+| Host must be `dev.azure.com`, `<organization>.visualstudio.com`, or one named in `-AllowedHost` | `Assert-AdoOrganizationUrl` |
+| The identity host is derived from the same URL, never hardcoded | `Get-AdoIdentityUrl`, read by `New-AdoUri` |
+| The organization may be pinned, so the right host is not enough | `expectedOrganizationEnv` in `project-context.json`, checked by `Get-AdoContext` |
 
 Without the host rule only the last path segment was inspected, so
 `https://attacker.example/dev.azure.com/contoso` was accepted and resolved to
 organization `contoso`. Every `Core` request then went to `attacker.example` with the
 token attached, while the `Identity` requests went to the real service — so the run
 partly succeeded and looked legitimate.
+
+The identity host was the other half of that. It was the literal
+`https://vssps.dev.azure.com/<org>` whatever the organization URL said, so an
+**on-premises** token was attached to a request aimed at Microsoft's cloud — the same
+disclosure, reached from the opposite direction, and again with the run partly
+succeeding because the `Core` calls went to the right place. Both bases are now derived
+from the one URL the allowlist approved, so there is no second host the token can reach.
+
+The legacy domain is matched as a single anchored label. A suffix test also accepted
+`anything.delegated.contoso.visualstudio.com`, which is one delegated label away from a
+host this repository would hand the token to.
+
+**A host allowlist cannot say *which organization*.** Every organization on
+`dev.azure.com` shares one permitted host, so a mistyped or tampered `ADO_ORG_URL`
+naming somebody else's organization passes every rule above. Declaring
+`expectedOrganizationEnv` closes that: the run refuses when the URL resolves to an
+organization the configuration does not name. It is opt-in by presence of a value, and
+per [ADR 0003](../adr/0003-configuration-declares-secret-names.md) the configuration
+declares the variable's **name** — the organization name is itself sensitive and stays
+out of Git.
 
 Azure DevOps Server does not use those host names. `-AllowedHost` is a parameter rather
 than a configuration field on purpose: trusting a host with a credential should be

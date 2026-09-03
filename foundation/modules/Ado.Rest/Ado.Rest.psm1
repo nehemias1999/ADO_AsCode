@@ -50,8 +50,20 @@ $script:RequestTimeoutSeconds = 100
 # the answer to "who can receive it".
 $script:DefaultAllowedHosts = @('dev.azure.com', 'vssps.dev.azure.com', 'vsaex.dev.azure.com')
 
-# Azure DevOps Services also answers on the legacy per-organization domain.
-$script:AllowedHostSuffixes = @('.visualstudio.com')
+# Azure DevOps Services also answers on the legacy per-organization domain. Matched as
+# an anchored pattern rather than with EndsWith: a suffix test also accepted
+# 'anything.delegated.contoso.visualstudio.com', so one delegated label under a legacy
+# organization's zone named a host this repository would hand the token to. One label,
+# optionally its vssps or vsaex twin, and nothing else.
+$script:AllowedHostPatterns = @('(?i)^[a-z0-9][a-z0-9-]{0,61}\.(?:vssps\.|vsaex\.)?visualstudio\.com$')
+
+# Organization hosts whose identity and Graph endpoints are served by a sibling host
+# rather than by the organization host itself.
+$script:IdentityHostBySourceHost = @{
+    'dev.azure.com'       = 'vssps.dev.azure.com'
+    'vsaex.dev.azure.com' = 'vssps.dev.azure.com'
+    'vssps.dev.azure.com' = 'vssps.dev.azure.com'
+}
 
 function Assert-AdoOrganizationUrl {
     <#
@@ -119,8 +131,8 @@ function Assert-AdoOrganizationUrl {
 
     $isPermitted = $permitted -contains $uri.Host
     if (-not $isPermitted) {
-        foreach ($suffix in $script:AllowedHostSuffixes) {
-            if ($uri.Host.EndsWith($suffix, [StringComparison]::OrdinalIgnoreCase)) {
+        foreach ($pattern in $script:AllowedHostPatterns) {
+            if ($uri.Host -match $pattern) {
                 $isPermitted = $true
                 break
             }
@@ -129,8 +141,78 @@ function Assert-AdoOrganizationUrl {
 
     if (-not $isPermitted) {
         throw ("The organization URL '$normalizedUrl' names host '$($uri.Host)', which is not a host this repository sends a credential to. " +
-            "Permitted: $($permitted -join ', '), or any *$($script:AllowedHostSuffixes -join ', *'). " +
+            "Permitted: $($permitted -join ', '), or <organization>.visualstudio.com. " +
             'For Azure DevOps Server, pass -AllowedHost explicitly.')
+    }
+
+    return $normalizedUrl
+}
+
+
+function Get-AdoIdentityUrl {
+    <#
+    .SYNOPSIS
+        Derives the base URL serving the identity and Graph endpoints for an
+        organization URL.
+
+    .DESCRIPTION
+        The identity host used to be a literal - 'https://vssps.dev.azure.com/<org>' -
+        whatever the organization URL said. For Azure DevOps Services that literal is
+        correct. For Azure DevOps Server it is not, and the failure mode is a credential
+        disclosure rather than a failed run: the token of an on-premises collection was
+        attached to a request aimed at Microsoft's cloud, and the run still partly
+        succeeded because the Core calls went to the right place. That is the scenario
+        Assert-AdoOrganizationUrl exists to prevent, reached from the other side.
+
+        Three cases, in order:
+
+        1. A known Services host maps to its vssps sibling, keeping the organization
+           segment. This is the behaviour that was correct all along.
+        2. The legacy per-organization domain answers on <org>.vssps.visualstudio.com.
+           Identity and Graph are ACCOUNT scoped there, so the collection segment of the
+           organization URL is not part of the route.
+        3. Anything else - which, after Assert-AdoOrganizationUrl, means a host the
+           caller named explicitly with -AllowedHost - is Azure DevOps Server, where
+           there is no vssps host at all: '_apis/identities' and '_apis/graph' are served
+           by the collection. The URL is returned unchanged. Never invent a host to send
+           a credential to.
+
+    .PARAMETER OrganizationUrl
+        Organization URL, already validated by Assert-AdoOrganizationUrl.
+
+    .EXAMPLE
+        Get-AdoIdentityUrl -OrganizationUrl 'https://dev.azure.com/contoso'
+
+        Returns 'https://vssps.dev.azure.com/contoso'.
+
+    .EXAMPLE
+        Get-AdoIdentityUrl -OrganizationUrl 'https://tfs.onprem.example/tfs/DefaultCollection'
+
+        Returns the same URL: an on-premises collection serves its own identity routes.
+
+    .OUTPUTS
+        The identity base URL, with no trailing slash.
+    #>
+    [CmdletBinding()]
+    [OutputType([string])]
+    param(
+        [Parameter(Mandatory)] [string] $OrganizationUrl
+    )
+
+    $normalizedUrl = $OrganizationUrl.TrimEnd('/')
+
+    $uri = $null
+    if (-not [Uri]::TryCreate($normalizedUrl, [UriKind]::Absolute, [ref] $uri)) {
+        throw "Cannot derive an identity URL from '$normalizedUrl': it is not an absolute URL."
+    }
+
+    $sourceHost = $uri.Host.ToLowerInvariant()
+    if ($script:IdentityHostBySourceHost.ContainsKey($sourceHost)) {
+        return ('https://{0}{1}' -f $script:IdentityHostBySourceHost[$sourceHost], $uri.AbsolutePath.TrimEnd('/'))
+    }
+
+    if ($sourceHost -match '(?i)^([a-z0-9][a-z0-9-]{0,61})\.(?:vssps\.|vsaex\.)?visualstudio\.com$') {
+        return "https://$($Matches[1]).vssps.visualstudio.com"
     }
 
     return $normalizedUrl
@@ -212,8 +294,8 @@ function Get-AdoContext {
         Reads ADO_ORG_URL, ADO_PROJECT and ADO_PAT from the process environment.
 
     .OUTPUTS
-        PSCustomObject with OrganizationUrl, OrganizationName, ProjectName,
-        Headers and DefaultApiVersion.
+        PSCustomObject with OrganizationUrl, OrganizationName, IdentityUrl,
+        ProjectName, Headers and DefaultApiVersion.
     #>
     [CmdletBinding(DefaultParameterSetName = 'FromEnvironment')]
     [OutputType([pscustomobject])]
@@ -251,9 +333,36 @@ function Get-AdoContext {
     }
 
     $normalizedUrl = Assert-AdoOrganizationUrl -OrganizationUrl $OrganizationUrl -AllowedHost $AllowedHost
-    $organizationName = ([Uri]$normalizedUrl).Segments[-1].Trim('/')
+
+    # The legacy domain names the organization in the subdomain; the path segment there
+    # is the collection. Reading the last segment produced 'DefaultCollection' as an
+    # organization name, which was then pasted into a hardcoded identity URL.
+    if ($normalizedUrl -match '(?i)^https://([a-z0-9][a-z0-9-]{0,61})\.(?:vssps\.|vsaex\.)?visualstudio\.com(?:/|$)') {
+        $organizationName = $Matches[1]
+    }
+    else {
+        $organizationName = ([Uri]$normalizedUrl).Segments[-1].Trim('/')
+    }
     if ([string]::IsNullOrWhiteSpace($organizationName)) {
         throw "The organization URL '$normalizedUrl' does not end in an organization name. Expected the form https://dev.azure.com/<organization>."
+    }
+
+    # A host allowlist cannot answer "which organization": every organization on
+    # dev.azure.com shares one permitted host, so a mistyped or tampered ADO_ORG_URL
+    # pointing at somebody else's organization passes every check above and receives
+    # the token. Naming the expected organization is what closes that, and it is opt-in
+    # by presence so no existing configuration changes behaviour. Per ADR 0003 the
+    # configuration declares the NAME of the variable; the value stays out of Git,
+    # because an organization name is itself on the deny list.
+    if ($PSCmdlet.ParameterSetName -eq 'FromEnvironment' -and $ProjectContext -and
+        $ProjectContext.PSObject.Properties.Name -contains 'expectedOrganizationEnv') {
+
+        $expectedVariable = "$($ProjectContext.expectedOrganizationEnv)"
+        $expected = [Environment]::GetEnvironmentVariable($expectedVariable, 'Process')
+        if (-not [string]::IsNullOrWhiteSpace($expected) -and $expected -ne $organizationName) {
+            throw ("The organization URL '$normalizedUrl' resolves to organization '$organizationName', but $expectedVariable declares '$expected'. " +
+                'Refusing to send the Personal Access Token to an organization the configuration does not expect.')
+        }
     }
 
     # Azure DevOps accepts a PAT as the password of Basic authentication with an
@@ -263,6 +372,7 @@ function Get-AdoContext {
     [pscustomobject]@{
         OrganizationUrl   = $normalizedUrl
         OrganizationName  = $organizationName
+        IdentityUrl       = (Get-AdoIdentityUrl -OrganizationUrl $normalizedUrl)
         ProjectName       = $Project
         DefaultApiVersion = $script:DefaultApiVersion
         Headers           = @{
@@ -314,8 +424,11 @@ function New-AdoUri {
         Resource path with no leading slash, for example '_apis/projects'.
 
     .PARAMETER Service
-        'Core' targets dev.azure.com; 'Identity' targets vssps.dev.azure.com,
-        which serves the Graph and identity endpoints.
+        'Core' targets the organization URL; 'Identity' targets the context's
+        IdentityUrl, which serves the Graph and identity endpoints. Both are derived
+        from the same validated organization URL, so there is no second host the token
+        can reach. For Azure DevOps Services the identity host is vssps.dev.azure.com;
+        on-premises it is the collection itself.
 
     .PARAMETER IncludeProject
         Inserts the encoded project name between the organization and the path.
@@ -352,7 +465,17 @@ function New-AdoUri {
     if (-not $ApiVersion) { $ApiVersion = $Context.DefaultApiVersion }
 
     if ($Service -eq 'Identity') {
-        $baseUri = "https://vssps.dev.azure.com/$($Context.OrganizationName)"
+        # Read from the context, never derived here. A context built by hand that
+        # reaches this line is a caller who bypassed Get-AdoContext, and the old
+        # behaviour for that caller was to aim the Basic header at
+        # vssps.dev.azure.com regardless of where the organization actually was -
+        # which for an on-premises token is a disclosure, not a failed request.
+        # Refusing is the only safe default.
+        if ($Context.PSObject.Properties.Name -notcontains 'IdentityUrl' -or
+            [string]::IsNullOrWhiteSpace($Context.IdentityUrl)) {
+            throw 'The connection context carries no IdentityUrl. Build it with Get-AdoContext, which derives the identity host from the organization URL.'
+        }
+        $baseUri = $Context.IdentityUrl
     }
     else {
         $baseUri = $Context.OrganizationUrl
@@ -861,6 +984,7 @@ function Get-AdoAuthenticatedUser {
 
 Export-ModuleMember -Function @(
     'Assert-AdoOrganizationUrl',
+    'Get-AdoIdentityUrl',
     'Get-AdoContext',
     'Get-RequiredEnvironmentVariable',
     'New-AdoUri',

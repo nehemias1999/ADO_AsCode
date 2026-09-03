@@ -10,6 +10,7 @@
 
     FunctionsToExport = @(
         'Assert-AdoOrganizationUrl',
+        'Get-AdoIdentityUrl',
         'Get-AdoContext',
         'Get-RequiredEnvironmentVariable',
         'New-AdoUri',

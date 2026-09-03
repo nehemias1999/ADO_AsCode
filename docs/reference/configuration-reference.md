@@ -50,6 +50,7 @@ Everything after the first `=` is the value, so `a=b=c` works.
 | --- | --- | --- |
 | `organizationUrlEnv` | Yes | Name of the variable holding the organization URL. The name is versioned; the value is not. |
 | `projectEnv` | Yes | Name of the variable holding the project. |
+| `expectedOrganizationEnv` | No | Name of the variable holding the organization this configuration belongs to. When declared **and set**, a run refuses if the organization URL resolves to a different organization. A host allowlist cannot catch that — every organization on `dev.azure.com` shares one permitted host. |
 | `environments` | Yes | Suffixes used to derive per-environment names. |
 | `defaults.boardTemplateTeam` | Yes | Team whose backlog iteration is copied to a new Team. Without it a new Board fails with `TF400509`. |
 | `defaults.defaultIterationMacro` | No | Usually `@currentIteration`. |

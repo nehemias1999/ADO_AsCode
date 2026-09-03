@@ -45,8 +45,9 @@ Describe 'Assert-AdoOrganizationUrl' {
         # The finding this function exists for. Validation used to inspect only the
         # last path segment, so this URL was accepted and resolved to organization
         # 'contoso' - while every Core request went to the attacker's host carrying
-        # the Basic header. The Identity base URI is hardcoded to the real service,
-        # so the run partly succeeded and looked legitimate.
+        # the Basic header. The Identity base URI pointed at the real service, so the
+        # run partly succeeded and looked legitimate. (That hardcoded identity host
+        # was itself the mirror-image disclosure; see Get-AdoIdentityUrl below.)
         { Assert-AdoOrganizationUrl -OrganizationUrl 'https://attacker.example/dev.azure.com/contoso' } |
             Should -Throw -ExpectedMessage '*not a host this repository sends a credential to*'
     }
@@ -54,6 +55,19 @@ Describe 'Assert-AdoOrganizationUrl' {
     It 'refuses a look-alike host built by suffixing the real one' {
         { Assert-AdoOrganizationUrl -OrganizationUrl 'https://dev.azure.com.attacker.example/contoso' } |
             Should -Throw -ExpectedMessage '*not a host this repository sends a credential to*'
+    }
+
+    It 'refuses a delegated label under a legacy organization zone' {
+        # The suffix test accepted anything ending in .visualstudio.com, so one
+        # delegated label under a legacy organization's zone named a host this
+        # repository would hand the token to. Anchored to a single label now.
+        { Assert-AdoOrganizationUrl -OrganizationUrl 'https://anything.delegated.contoso.visualstudio.com/x' } |
+            Should -Throw -ExpectedMessage '*not a host this repository sends a credential to*'
+    }
+
+    It 'still accepts the legacy vssps twin' {
+        Assert-AdoOrganizationUrl -OrganizationUrl 'https://contoso.vssps.visualstudio.com' |
+            Should -Be 'https://contoso.vssps.visualstudio.com'
     }
 
     It 'refuses a look-alike of the legacy domain' {
@@ -204,5 +218,121 @@ Describe 'Get-AdoRetryDecision' {
         $d = Get-AdoRetryDecision -Method Get -StatusCode 429 -RetryAfterSeconds 999999 -Attempt 1 -MaximumAttempts 4
         $d.DelaySeconds | Should -BeLessOrEqual 120
         $d.DelaySeconds | Should -BeGreaterThan 0
+    }
+}
+
+Describe 'Get-AdoIdentityUrl' {
+
+    It 'maps a Services organization to its vssps sibling' {
+        # The behaviour that was correct all along, kept.
+        Get-AdoIdentityUrl -OrganizationUrl 'https://dev.azure.com/contoso' |
+            Should -Be 'https://vssps.dev.azure.com/contoso'
+    }
+
+    It 'reads the organization from the subdomain on the legacy domain' {
+        # Identity and Graph are account scoped there, so the collection segment is
+        # not part of the route. The old code pasted the LAST PATH SEGMENT into a
+        # hardcoded host, producing https://vssps.dev.azure.com/DefaultCollection -
+        # wrong host and wrong organization at once.
+        $identityUrl = Get-AdoIdentityUrl -OrganizationUrl 'https://contoso.visualstudio.com/DefaultCollection'
+
+        $identityUrl | Should -Be 'https://contoso.vssps.visualstudio.com'
+        $identityUrl | Should -Not -BeLike '*DefaultCollection*'
+    }
+
+    It 'leaves an on-premises collection to serve its own identity routes' {
+        # The regression test for the disclosure. An Azure DevOps Server collection has
+        # no vssps host, and the old code aimed the Basic header carrying an
+        # on-premises token at Microsoft's cloud - the exact scenario
+        # Assert-AdoOrganizationUrl exists to prevent, reached from the other side.
+        $identityUrl = Get-AdoIdentityUrl -OrganizationUrl 'https://tfs.onprem.example/tfs/DefaultCollection'
+
+        $identityUrl | Should -Be 'https://tfs.onprem.example/tfs/DefaultCollection'
+        $identityUrl | Should -Not -BeLike '*dev.azure.com*'
+        $identityUrl | Should -Not -BeLike '*visualstudio.com*'
+    }
+}
+
+Describe 'New-AdoUri and the identity host' {
+
+    BeforeAll {
+        $script:onPremContext = Get-AdoContext `
+            -OrganizationUrl 'https://tfs.onprem.example/tfs/DefaultCollection' `
+            -Project 'Platform' -PersonalAccessToken 'not-a-real-token' `
+            -AllowedHost 'tfs.onprem.example'
+    }
+
+    It 'never sends an on-premises token to the Microsoft cloud' {
+        # End to end: the context is built the way an entry point builds it, and the
+        # identity request has to stay on the host the caller actually trusted.
+        $uri = New-AdoUri -Context $script:onPremContext -Path '_apis/identities' -Service Identity
+
+        ([Uri]$uri).Host | Should -Be 'tfs.onprem.example'
+        $uri | Should -Not -BeLike '*dev.azure.com*'
+    }
+
+    It 'refuses a context that carries no identity host rather than guessing one' {
+        # A hand-built context reaching this line is a caller who bypassed
+        # Get-AdoContext. The old default for that caller was to aim the credential at
+        # vssps.dev.azure.com regardless, which is a disclosure and not a failed call.
+        $handBuilt = [pscustomobject]@{
+            OrganizationUrl   = 'https://dev.azure.com/contoso'
+            OrganizationName  = 'contoso'
+            DefaultApiVersion = '7.1'
+        }
+
+        { New-AdoUri -Context $handBuilt -Path '_apis/identities' -Service Identity } |
+            Should -Throw -ExpectedMessage '*carries no IdentityUrl*'
+    }
+
+    It 'still routes a Services organization to vssps' {
+        $context = Get-AdoContext -OrganizationUrl 'https://dev.azure.com/contoso' `
+            -Project 'Platform' -PersonalAccessToken 'not-a-real-token'
+
+        New-AdoUri -Context $context -Path '_apis/identities' -Service Identity |
+            Should -BeLike 'https://vssps.dev.azure.com/contoso/_apis/identities*'
+    }
+}
+
+Describe 'Organization pinning' {
+
+    AfterEach { [Environment]::SetEnvironmentVariable('ADO_EXPECTED_ORG', $null, 'Process') }
+
+    It 'refuses an organization the configuration does not expect' {
+        # A host allowlist cannot answer "which organization": every organization on
+        # dev.azure.com shares one permitted host, so a mistyped or tampered
+        # ADO_ORG_URL pointing at somebody else's organization passes every host check
+        # and still receives the token.
+        [Environment]::SetEnvironmentVariable('ADO_EXPECTED_ORG', 'contoso', 'Process')
+        [Environment]::SetEnvironmentVariable('ADO_ORG_URL', 'https://dev.azure.com/someone-else', 'Process')
+        [Environment]::SetEnvironmentVariable('ADO_PROJECT', 'Platform', 'Process')
+        [Environment]::SetEnvironmentVariable('ADO_PAT', 'not-a-real-token', 'Process')
+
+        $projectContext = [pscustomobject]@{ expectedOrganizationEnv = 'ADO_EXPECTED_ORG' }
+
+        { Get-AdoContext -ProjectContext $projectContext } |
+            Should -Throw -ExpectedMessage "*does not expect*"
+    }
+
+    It 'accepts the organization the configuration names' {
+        [Environment]::SetEnvironmentVariable('ADO_EXPECTED_ORG', 'contoso', 'Process')
+        [Environment]::SetEnvironmentVariable('ADO_ORG_URL', 'https://dev.azure.com/contoso', 'Process')
+        [Environment]::SetEnvironmentVariable('ADO_PROJECT', 'Platform', 'Process')
+        [Environment]::SetEnvironmentVariable('ADO_PAT', 'not-a-real-token', 'Process')
+
+        $projectContext = [pscustomobject]@{ expectedOrganizationEnv = 'ADO_EXPECTED_ORG' }
+
+        (Get-AdoContext -ProjectContext $projectContext).OrganizationName | Should -Be 'contoso'
+    }
+
+    It 'changes nothing when the variable is declared but unset' {
+        # Opt-in by presence of a VALUE, so shipping the field breaks no existing run.
+        [Environment]::SetEnvironmentVariable('ADO_ORG_URL', 'https://dev.azure.com/contoso', 'Process')
+        [Environment]::SetEnvironmentVariable('ADO_PROJECT', 'Platform', 'Process')
+        [Environment]::SetEnvironmentVariable('ADO_PAT', 'not-a-real-token', 'Process')
+
+        $projectContext = [pscustomobject]@{ expectedOrganizationEnv = 'ADO_EXPECTED_ORG' }
+
+        (Get-AdoContext -ProjectContext $projectContext).OrganizationName | Should -Be 'contoso'
     }
 }
