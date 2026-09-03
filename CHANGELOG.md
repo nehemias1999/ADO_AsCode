@@ -107,6 +107,13 @@ breaking change to a schema is a major version, whatever the code did.
 
 ### Fixed
 
+- **Tests** — the assertion that the SSH payload's `data` bag holds only `Host` and
+  `Port` no longer depends on their order. `data` is a plain hashtable, whose key
+  enumeration order PowerShell does not guarantee, and it differs between editions: the
+  test passed on Windows PowerShell 5.1 for as long as it existed and failed on
+  PowerShell 7 the first time CI ran there. The property it exists to protect - that a
+  private key is never duplicated into a bag returned in clear by every GET - was never
+  about ordering. Found by the new PowerShell 7 job, which is what it was added for.
 - **Tests** — the pure functions that had no test now have one. `AGENTS.md` §7 says the
   dangerous logic is written as pure functions *so that* it can be tested offline, and
   four of them never were: `Format-AdoAsCodeReportMarkdown`, `Get-PlanStatusName`,
