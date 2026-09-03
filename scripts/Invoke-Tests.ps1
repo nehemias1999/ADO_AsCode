@@ -18,6 +18,11 @@
 .PARAMETER Path
     Restrict the Pester run to one path.
 
+.PARAMETER TestResultPath
+    Write the Pester results as NUnit XML to this path, for a CI run to publish. Off by
+    default: a workstation run has the console in front of it, and a failing CI run
+    otherwise leaves nothing but a scrolling log to read the failures out of.
+
 .EXAMPLE
     .\scripts\Invoke-Tests.ps1
 
@@ -33,7 +38,9 @@ param(
     [ValidateSet('Analyzer', 'Pester', 'Secrets')]
     [string[]] $Skip = @(),
 
-    [string] $Path
+    [string] $Path,
+
+    [string] $TestResultPath
 )
 
 Set-StrictMode -Version Latest
@@ -159,6 +166,20 @@ if ($Skip -notcontains 'Pester') {
         $configuration.Run.PassThru = $true
         $configuration.Output.Verbosity = 'Detailed'
         $configuration.Should.ErrorAction = 'Continue'
+
+        if ($TestResultPath) {
+            # Only when asked. A failing CI run otherwise leaves nothing but the raw
+            # log, and reading which of 171 tests failed out of a scrolling console is
+            # the part that costs the time. Off by default, because a workstation run
+            # has the console right there and does not need a file.
+            $resultDirectory = Split-Path -Parent $TestResultPath
+            if ($resultDirectory -and -not (Test-Path -LiteralPath $resultDirectory)) {
+                New-Item -ItemType Directory -Force -Path $resultDirectory | Out-Null
+            }
+            $configuration.TestResult.Enabled = $true
+            $configuration.TestResult.OutputPath = $TestResultPath
+            $configuration.TestResult.OutputFormat = 'NUnitXml'
+        }
 
         $result = Invoke-Pester -Configuration $configuration
         Write-TestLog "Pester: $($result.PassedCount) passed, $($result.FailedCount) failed, $($result.SkippedCount) skipped."
