@@ -546,6 +546,14 @@ function New-VariableGroupPlan {
             if ($forbidden -contains $keyName) { continue }
 
             $exists = $liveNames -contains $keyName
+            # The live value is read to compare against, and is deliberately never
+            # transcribed into a plan reason. A variable marked non-secret is still a
+            # value somebody typed: a host name, a connection string, a URL carrying a
+            # token. Remove-SensitiveValue redacts by property NAME, and 'reason' is
+            # not a sensitive name, so anything interpolated here lands unredacted in
+            # artifacts/ - which all three pipelines publish with condition: always(),
+            # readable by anyone who can read a build. The declared value is different:
+            # it is what the approver is being asked to approve.
             $liveValue = if ($exists) { "$($group.variables.$keyName.value)" } else { $null }
 
             if ([bool]$declared.isSecret) {
@@ -597,7 +605,9 @@ function New-VariableGroupPlan {
             else {
                 Add-PlanOperation -Plan $plan -Operation (New-PlanOperation -Resource 'Variable' -Name "$groupName/$keyName" `
                     -Action 'exists' -Status 'protected' `
-                    -Reason "Holds '$liveValue' while the values file declares '$desired'. It is not overwritten: a value that is neither absent nor the sentinel was set by somebody on purpose. Reconcile the values file, or clear the variable to the sentinel to let the automation fill it.")
+                    -Reason ("Holds a different value ($($liveValue.Length) characters) while the values file declares '$desired'. " +
+                        'It is not overwritten: a value that is neither absent nor the sentinel was set by somebody on purpose. ' +
+                        'Read the live value in the portal, then reconcile the values file, or clear the variable to the sentinel to let the automation fill it.'))
             }
         }
 

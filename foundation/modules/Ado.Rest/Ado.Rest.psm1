@@ -45,6 +45,12 @@ $script:MaximumRetryDelaySeconds = 120
 # is that an unresponsive endpoint cannot park an apply forever.
 $script:RequestTimeoutSeconds = 100
 
+# Upper bound on the pages of one paged collection. The exit condition of a
+# continuation-token loop comes from the server, so without a bound a service that
+# repeats a token leaves the loop issuing requests indefinitely. No collection this
+# repository reads comes close: the largest is the security groups of one organization.
+$script:MaximumPageCount = 500
+
 # Hosts the Personal Access Token may be sent to without an explicit opt-in. The
 # PAT is attached to every request as a Basic authorization header, so this list is
 # the answer to "who can receive it".
@@ -252,6 +258,15 @@ function Remove-SecretFromText {
     $sanitized = $Text
     $sanitized = [regex]::Replace($sanitized, '(?i)(Basic|Bearer)\s+[A-Za-z0-9+/=_\-\.]{8,}', '$1 ***')
     $sanitized = [regex]::Replace($sanitized, '(?i)(pat|token|password|secret)(["'']?\s*[:=]\s*["'']?)[^\s"'',;}]{6,}', '$1$2***')
+
+    # A token with nothing in front of it. Both rules above need a cue - a scheme, or a
+    # name and a separator - and a PAT can arrive with neither: inside the body of a
+    # sign-in page, or in a malformed query string. This is the same shape rule the
+    # committed sensitive-data gate already applies to files
+    # (scripts/Test-NoSensitiveData.ps1), which is where it was noticed missing here.
+    # Base32, 52 characters, bounded so a longer alphanumeric run is not touched.
+    $sanitized = [regex]::Replace($sanitized, '(?<![A-Za-z0-9])[a-z2-7]{52}(?![A-Za-z0-9])', '***')
+
     return $sanitized
 }
 
@@ -775,13 +790,26 @@ function Invoke-AdoRestPaged {
     [OutputType([object[]])]
     param(
         [Parameter(Mandatory)] [object] $Context,
-        [Parameter(Mandatory)] [string] $Uri
+        [Parameter(Mandatory)] [string] $Uri,
+        [ValidateRange(1, 10000)] [int] $MaximumPages = $script:MaximumPageCount
     )
 
     $items = New-Object System.Collections.Generic.List[object]
     $continuationToken = $null
+    $page = 0
 
     do {
+        # An upper bound, because the exit condition is supplied by the server. A
+        # service or an intercepting proxy that returns the same continuation token
+        # every time leaves this loop issuing requests forever - each one carrying the
+        # Basic header - with no error and nothing to notice. Failing loudly at a
+        # bound no real collection approaches is the only outcome that is diagnosable.
+        $page++
+        if ($page -gt $MaximumPages) {
+            throw ("Paged request to '$Uri' exceeded $MaximumPages pages. The service kept returning a continuation token, " +
+                'which for a collection this size means it is repeating itself rather than advancing.')
+        }
+
         $pageUri = $Uri
         if (-not [string]::IsNullOrWhiteSpace($continuationToken)) {
             $separator = if ($pageUri.Contains('?')) { '&' } else { '?' }

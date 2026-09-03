@@ -40,6 +40,26 @@ breaking change to a schema is a major version, whatever the code did.
 
 ### Security
 
+- **Foundation** — a plan reason no longer transcribes the **live** value of a Variable
+  Group variable. A variable marked non-secret is still a value somebody typed - a host
+  name, a connection string, a URL carrying a token - and `Remove-SensitiveValue` redacts
+  by property *name*, so anything interpolated into `reason` landed unredacted in
+  `artifacts/`, which all three pipelines publish with `condition: always()` for anyone
+  who can read a build. The reason now states the length and points at the portal. The
+  *declared* value stays: it is what the approver is being asked to approve.
+- **Foundation** — `Invoke-AdoRestPaged` has an upper bound on pages. The exit condition
+  of a continuation-token loop comes from the server, so a service or intercepting proxy
+  that returns the same token every time left the loop issuing requests indefinitely,
+  each carrying the Basic header, with no error and nothing to notice.
+- **Foundation** — `Remove-SecretFromText` masks a token that arrives with no scheme and
+  no name in front of it. Both existing rules need a cue, and a PAT can have neither -
+  inside the body of a sign-in page, or a malformed query string. The shape rule already
+  existed in `Test-NoSensitiveData.ps1`; it was missing from the runtime masking, which
+  is the half that reaches a thrown error message.
+- **Foundation** — the reduced schema engine now emits a **warning** rather than a
+  verbose line. It ignores what it cannot check, so every `pattern` in every schema is
+  skipped - including the ones constraining which environment variable a context may
+  read - and nobody reads `-Verbose` to find out which engine validated their run.
 - **Pipelines** — `.env.pipeline` is removed with `condition: always()`, before the
   artifacts are published. It holds `ADO_PAT` in clear text along with every connection
   credential the run needed, and nothing deleted it. On a Microsoft-hosted agent the
