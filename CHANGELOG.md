@@ -12,6 +12,21 @@ breaking change to a schema is a major version, whatever the code did.
 
 ### Fixed
 
+- **Docs** — the README now links troubleshooting, names every family of environment
+  variable rather than the three connection ones, lists the path overrides and the three
+  widening switches, completes the repository layout with `.github/`, `.env.example`,
+  `PSScriptAnalyzerSettings.psd1`, `.local/` and `artifacts/`, and states that running
+  the gate needs Pester and PSScriptAnalyzer even though running the automations needs
+  nothing but PowerShell.
+- **Docs** — `rename` is documented as workstation-only in the README, `command-model.md`
+  and `pipelines/README.md` §3. It was absent from the pipeline definitions and named in
+  the command tables with nothing saying the two disagreed.
+- **Docs** — `pipelines/README.md` is indexed in `docs/README.md` §3. The CI check only
+  walks `docs/`, so an unindexed document outside it passed while the rule the index
+  states — every document in this repository — did not hold.
+- **Docs** — `CONTRIBUTING.md` §4 carried six of the seven Definition of done rows in
+  `AGENTS.md` §5, missing *if the change adds a way to write, the guide says how to
+  reverse it*. Two definitions of done in one repository is one too many.
 - **Docs** — `-AllowUnqualifiedSecretName` now has a `.PARAMETER` block. It was the only
   parameter on the public surface with none, and it is the switch that turns off the
   protection stopping a DEV value from being written over a PROD credential. A comment

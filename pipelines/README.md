@@ -86,3 +86,8 @@ definition can be pointed at another organization without editing the file.
   runs the command from a workstation, having decided that is the right thing to do.
 - **A pipeline that applies to every application at once.** One application per
   execution is what keeps a plan readable and a failure attributable.
+- **The `rename` verb.** `team-provisioning.yml` offers `validate`, `inventory`, `plan`,
+  `smoke`, `apply` and `reconcile`. `rename` rewrites `System.AreaPath` on every Work
+  Item below the path — the one operation whose blast radius the plan does not bound —
+  so it stays a workstation command with two confirmations, not an option in a
+  drop-down.
