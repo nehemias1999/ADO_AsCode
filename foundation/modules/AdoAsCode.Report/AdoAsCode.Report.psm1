@@ -497,8 +497,14 @@ function Format-AdoAsCodeReportMarkdown {
 
     .DESCRIPTION
         Pure function, so the rendering is covered by tests without touching the
-        file system. Operations are grouped by status, with the ones needing
-        attention first, because that is the order a reviewer reads in.
+        file system - see tests/foundation/PureFunctions.Tests.ps1. That sentence stood
+        here for a while before it was true, which is the sharper failure of the two: a
+        documented claim of coverage is what stops anyone checking.
+
+        Operations are grouped by status, with the ones needing attention first, because
+        that is the order a reviewer reads in. A pipe in a reason is escaped, since a
+        reason is free text written for a person and a bare pipe silently splits the
+        table row - mangling exactly the field the reviewer needs.
 
     .PARAMETER Report
         Sanitized report object.

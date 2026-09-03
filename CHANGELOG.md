@@ -107,6 +107,23 @@ breaking change to a schema is a major version, whatever the code did.
 
 ### Fixed
 
+- **Tests** — the pure functions that had no test now have one. `AGENTS.md` §7 says the
+  dangerous logic is written as pure functions *so that* it can be tested offline, and
+  four of them never were: `Format-AdoAsCodeReportMarkdown`, `Get-PlanStatusName`,
+  `Get-PlanActionName` and `Get-AdoBoardColumnRenameConflict`. The first is the sharper
+  case, because its own help said the rendering *is* covered by a test - and a
+  documented claim of coverage is what stops anyone checking. It renders the Markdown an
+  approver reads, and escapes pipes in a reason, neither of which was verified.
+  (`Get-AdoBoardColumnStatus` was also on the list, and is not covered here: it takes a
+  connection context and reads live state, so despite the `*Status` naming convention it
+  is not an offline-testable pure function.)
+- **Tests** — the seven module manifests are checked rather than maintained by hand:
+  `Test-ModuleManifest` on each, one shared `ModuleVersion` across all seven, and
+  `FunctionsToExport` equal to `Export-ModuleMember`. Those are two lists of the same
+  thing kept in separate files, and when they disagree the manifest wins and the
+  function is simply absent, with no error anywhere. They were in step by coincidence
+  and by somebody remembering.
+
 - **Foundation** — one logger, `Write-AdoAsCodeLog`, replaces three identical copies of
   `Write-ModuleLog` - two of which had lost the comment explaining why the information
   stream is used when they were copied. Every line now carries a UTC timestamp, because
