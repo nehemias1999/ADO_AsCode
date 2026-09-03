@@ -86,26 +86,61 @@ if ($Skip -notcontains 'Analyzer') {
         Write-TestLog 'Running PSScriptAnalyzer...'
 
         $settingsPath = Join-Path $repoRoot 'PSScriptAnalyzerSettings.psd1'
-        $findings = @(Invoke-ScriptAnalyzer -Path $repoRoot -Recurse -Settings $settingsPath -ExcludeRule @() |
+
+        # A rule that throws surfaces as a non-terminating error, and this script runs
+        # under $ErrorActionPreference = 'Stop' - so an unhandled one aborted the whole
+        # gate before Pester ran, with a NullReferenceException as the only diagnostic.
+        # Captured instead, and counted as a failure: a rule that crashed did not
+        # analyse its file, and a check that silently analysed nothing is worse than
+        # one that says so.
+        $analyzerError = $null
+        $findings = @(Invoke-ScriptAnalyzer -Path $repoRoot -Recurse -Settings $settingsPath `
+                -ErrorVariable analyzerError -ErrorAction SilentlyContinue |
             Where-Object { $_.ScriptPath -notmatch '[\\/](\.git|artifacts|\.local)[\\/]' })
 
         $errors = @($findings | Where-Object { $_.Severity -eq 'Error' })
         $warnings = @($findings | Where-Object { $_.Severity -eq 'Warning' })
 
-        foreach ($finding in ($findings | Sort-Object Severity, ScriptName | Select-Object -First 40)) {
+        # Every finding, not the first 40. The count that has to hold is zero, so a cap
+        # only hides the rest of the work and buys a second round trip to CI. The bound
+        # stays as a runaway guard for the day a rule misfires across the repository.
+        foreach ($finding in ($findings | Sort-Object Severity, ScriptName, Line | Select-Object -First 200)) {
             Write-TestLog ("  {0,-8} {1}:{2} {3}" -f $finding.Severity, $finding.ScriptName, $finding.Line, $finding.RuleName)
         }
-        if ($findings.Count -gt 40) {
-            Write-TestLog "  ... $($findings.Count - 40) more finding(s) not listed."
+        if ($findings.Count -gt 200) {
+            Write-TestLog "  ... $($findings.Count - 200) more finding(s) not listed."
+        }
+
+        # The tally is never capped: it is what shows whether one rule accounts for
+        # everything, which is the difference between a real regression and a rule to
+        # reconsider.
+        foreach ($group in ($findings | Group-Object RuleName | Sort-Object Count -Descending)) {
+            Write-TestLog ("  {0,4}  {1}" -f $group.Count, $group.Name)
         }
 
         Write-TestLog "PSScriptAnalyzer: $($errors.Count) error(s), $($warnings.Count) warning(s)."
-        if ($errors.Count -gt 0) {
-            $failures.Add("PSScriptAnalyzer reported $($errors.Count) error(s).")
+
+        # Warnings fail. Almost every rule this repository actually relies on is
+        # severity Warning - PSUseShouldProcessForStateChangingFunctions,
+        # PSAvoidUsingEmptyCatchBlock, PSUseDeclaredVarsMoreThanAssignments,
+        # PSUseCompatibleSyntax, PSAvoidUsingCmdletAliases - so a gate that failed only
+        # on Error enforced almost none of them, while testing-strategy.md claimed it
+        # caught exactly those. The repository is at zero findings under these settings,
+        # so this costs no backlog: what it defends is the next one.
+        if ($findings.Count -gt 0) {
+            $failures.Add("PSScriptAnalyzer reported $($errors.Count) error(s) and $($warnings.Count) warning(s).")
+        }
+        if ($analyzerError.Count -gt 0) {
+            foreach ($problem in $analyzerError) { Write-TestLog "  RULE ERROR $problem" }
+            $failures.Add("$($analyzerError.Count) PSScriptAnalyzer rule(s) failed to run, so their files were not analysed.")
         }
     }
     else {
-        Write-TestLog 'PSScriptAnalyzer is not installed; static analysis skipped. Install-Module PSScriptAnalyzer -Scope CurrentUser'
+        # Not a skip. A missing analyzer used to make the strictest half of the gate
+        # pass by doing nothing, and the point of one runner is that "it passed" means
+        # the same thing on a workstation as in CI. Opting out is still possible; it is
+        # just explicit now.
+        $failures.Add('PSScriptAnalyzer is not installed, so static analysis did not run. Install-Module PSScriptAnalyzer -Scope CurrentUser, or re-run with -Skip Analyzer.')
     }
 }
 
