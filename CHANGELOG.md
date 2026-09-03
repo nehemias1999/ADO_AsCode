@@ -12,6 +12,26 @@ breaking change to a schema is a major version, whatever the code did.
 
 ### Security
 
+- **Pipelines** — `.env.pipeline` is removed with `condition: always()`, before the
+  artifacts are published. It holds `ADO_PAT` in clear text along with every connection
+  credential the run needed, and nothing deleted it. On a Microsoft-hosted agent the
+  workspace is discarded — which is the assumption the writing step's comment stated as
+  fact — but a **self-hosted** agent is the case this repository exists for, and there
+  the workspace survives: the token sat in the checkout until some later build happened
+  to overwrite it, readable by every other pipeline on that agent. The content is
+  overwritten before the file is unlinked, and the step throws if the file is still
+  there afterwards, because a cleanup that failed quietly is indistinguishable from one
+  that ran.
+- **Pipelines** — the Variable Group pipeline exported `APP_ALPHA_PASSWORD` and
+  `APP_BETA_PASSWORD`, which match neither the `<NAME>_<ENVIRONMENT>` scheme
+  `Get-AdoVariableGroupSecretSource` resolves nor the names in `.env.example`. No secret
+  ever resolved from a pipeline run, so every group holding one was reported `blocked`:
+  it failed safe, and it was entirely inoperative. Now `APP_SERVER_PASSWORD_DEV`, `_QA`
+  and `_PROD`.
+- **Pipelines** — the Service Connection pipeline carries the `*_PRIVATE_KEY` variables
+  it never exported, so a connection declaring one can be created with it rather than
+  only with the sentinel. A test derives the expected list from the shipped
+  configuration, so the two cannot drift apart again.
 - **Foundation** — the identity host is derived from the organization URL instead of
   being the literal `https://vssps.dev.azure.com/<organization>`. That literal is right
   for Azure DevOps Services and wrong everywhere else, and the failure mode is
@@ -56,6 +76,13 @@ breaking change to a schema is a major version, whatever the code did.
   `-Skip Analyzer` as the explicit opt-out. The finding list is no longer truncated at
   40, and a per-rule tally is printed, which is what distinguishes a real regression
   from one rule misfiring repository-wide.
+- **Pipelines** — the queue-time parameter validator and the environment-file writer moved
+  from inline YAML into `scripts/pipeline/`. Roughly fifty lines of injection control were
+  triplicated in the one part of the repository the parse check, PSScriptAnalyzer and
+  Pester all skip: a bypass found in one copy had to be fixed in three, and nothing
+  verified the three still agreed. `Assert-ParameterValue` now has tests. Not a shared
+  YAML template — `pipelines/README.md` §3 rules that out, and this is a script the
+  pipeline calls.
 - **Docs** — added `docs/reference/api-reference.md`, naming all 71 functions the
   foundation exports with the synopsis each declares in its own comment-based help. 53 of
   them appeared in no document at all, so the only way to learn whether a behaviour
