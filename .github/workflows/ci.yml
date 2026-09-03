@@ -22,27 +22,17 @@ concurrency:
 
 jobs:
   quality-gate:
-    # Both editions, because the repository claims both and the difference is not
-    # cosmetic: Windows PowerShell 5.1 has no Test-Json -Schema, so it validates
-    # configuration with the reduced engine that skips every `pattern` in every schema.
-    # Running only 5.1 meant the strong validation path was never exercised anywhere;
-    # running only 7 would have meant the supported floor never was.
-    name: quality gate (${{ matrix.edition }})
+    # Both editions, in one job, because the difference is not cosmetic: Windows
+    # PowerShell 5.1 has no Test-Json -Schema, so it validates configuration with the
+    # reduced engine that skips every `pattern` in every schema. Running only 5.1 meant
+    # the strong validation path was exercised nowhere; running only 7 would have left
+    # the stated support floor unexercised instead.
+    #
+    # Two literal `shell:` values rather than a matrix: the matrix context is not
+    # available to `shell:`, and a matrix over two values would have duplicated the job
+    # anyway. Each edition has its own module path, so the tooling is installed twice.
     runs-on: windows-latest
-    timeout-minutes: 20
-
-    strategy:
-      # Both results, always. Knowing that 5.1 failed and 7 passed is the diagnosis;
-      # cancelling the sibling job throws it away.
-      fail-fast: false
-      matrix:
-        include:
-          - edition: Windows PowerShell 5.1
-            shell: powershell
-            slug: ps51
-          - edition: PowerShell 7
-            shell: pwsh
-            slug: ps7
+    timeout-minutes: 25
 
     steps:
       # Pinned to a commit, not a tag. A tag is mutable, so `@v4` is a promise that
@@ -51,46 +41,62 @@ jobs:
       - name: Check out the repository
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.3.0
 
-      - name: Report the PowerShell version under test
-        shell: ${{ matrix.shell }}
+      - name: Report both PowerShell versions under test
+        shell: powershell
         run: |
-          $PSVersionTable | Format-List | Out-String | Write-Host
-          Write-Host "Test-Json -Schema available: $([bool]((Get-Command Test-Json -ErrorAction SilentlyContinue) -and (Get-Command Test-Json).Parameters.ContainsKey('Schema')))"
+          $report = {
+            "$($PSVersionTable.PSEdition) $($PSVersionTable.PSVersion) - Test-Json -Schema: " +
+              [bool]((Get-Command Test-Json -ErrorAction SilentlyContinue) -and (Get-Command Test-Json).Parameters.ContainsKey('Schema'))
+          }
+          Write-Host (& $report)
+          Write-Host (pwsh -NoProfile -Command $report.ToString())
 
-      - name: Install the test tooling
-        shell: ${{ matrix.shell }}
+      # Exact versions. With a minimum only, a new release of either module turns `main`
+      # red without anybody having changed a line - and the first thing you then debug is
+      # code that did not move. Raising these is a commit somebody reviews.
+      - name: Install the test tooling for Windows PowerShell 5.1
+        shell: powershell
         run: |
           $ErrorActionPreference = 'Stop'
           Set-PSRepository -Name PSGallery -InstallationPolicy Trusted
-          # Exact versions. With a minimum only, a new release of either module turns
-          # `main` red without anybody having changed a line - and the first thing you
-          # then debug is code that did not move. Raising these is a commit somebody
-          # reviews.
           Install-Module Pester -RequiredVersion 6.1.0 -Scope CurrentUser -Force -SkipPublisherCheck
           Install-Module PSScriptAnalyzer -RequiredVersion 1.25.0 -Scope CurrentUser -Force
           # Test-time only. The automations themselves have no dependency beyond
           # PowerShell, which is what lets them run on a locked-down workstation.
 
+      - name: Install the test tooling for PowerShell 7
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          # A separate install: the two editions do not share a module path.
+          Set-PSRepository -Name PSGallery -InstallationPolicy Trusted
+          Install-Module Pester -RequiredVersion 6.1.0 -Scope CurrentUser -Force -SkipPublisherCheck
+          Install-Module PSScriptAnalyzer -RequiredVersion 1.25.0 -Scope CurrentUser -Force
+
       - name: Check the prerequisites without writing anything
-        shell: ${{ matrix.shell }}
+        shell: powershell
         run: ./scripts/bootstrap.ps1 -CheckOnly
 
-      - name: Run the quality gate
-        shell: ${{ matrix.shell }}
-        run: ./scripts/Invoke-Tests.ps1 -TestResultPath "artifacts/test-results/pester-${{ matrix.slug }}.xml"
+      - name: Run the quality gate under Windows PowerShell 5.1
+        shell: powershell
+        run: ./scripts/Invoke-Tests.ps1 -TestResultPath "artifacts/test-results/pester-ps51.xml"
+
+      - name: Run the quality gate under PowerShell 7
+        shell: pwsh
+        run: ./scripts/Invoke-Tests.ps1 -TestResultPath "artifacts/test-results/pester-ps7.xml"
 
       - name: Publish the test results
         # always(), because the run this is wanted for is the one that failed.
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
-          name: pester-${{ matrix.slug }}
+          name: pester-results
           path: artifacts/test-results/
           if-no-files-found: warn
           retention-days: 14
 
       - name: Validate every automation offline
-        shell: ${{ matrix.shell }}
+        shell: powershell
         run: |
           $ErrorActionPreference = 'Stop'
           # Proves the claim the guides make: validate needs no credentials. This job

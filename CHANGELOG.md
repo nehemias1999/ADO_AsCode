@@ -125,8 +125,10 @@ breaking change to a schema is a major version, whatever the code did.
 - **CI** — the quality gate runs on **both** editions. It ran only under Windows
   PowerShell 5.1, which is exactly where `Test-Json -Schema` does not exist - so the
   full schema validation path, the one that actually enforces the `pattern` in every
-  schema, was never exercised anywhere. `fail-fast: false`, because knowing that 5.1
-  failed and 7 passed is the diagnosis.
+  schema, was never exercised anywhere. Two steps with a literal `shell:` rather than a
+  matrix, because the `matrix` context is not available to `shell:` and a two-value
+  matrix would have duplicated the job regardless. The tooling is installed twice: the
+  two editions do not share a module path.
 - **CI** — Pester and PSScriptAnalyzer are pinned to exact versions and the actions to
   commit SHAs. With a minimum version only, a new release turned `main` red without
   anybody changing a line, and the first thing anyone debugged was code that had not
