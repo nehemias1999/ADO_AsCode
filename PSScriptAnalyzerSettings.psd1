@@ -10,7 +10,9 @@
         # The automations are operator-facing command-line tools whose progress
         # output is part of what they do. Progress goes to the information stream
         # through Write-Information, never to the host - but the analyzer also flags
-        # legitimate uses in that neighbourhood, and the codebase has no Write-Host.
+        # legitimate uses in that neighbourhood. No .ps1 or .psm1 here calls
+        # Write-Host; the pipeline YAML does, where the agent log is the only stream
+        # there is, and the analyzer does not read YAML anyway.
         'PSAvoidUsingWriteHost',
 
         # Credential parameters here are environment-variable NAMES and resolved

@@ -27,10 +27,16 @@ The test suite is a consequence of that shape, not a bolt-on.
 
 | Layer | Covered by | Count |
 | --- | --- | --- |
-| Board column reconciliation | `tests/foundation/Ado.Work.BoardColumns.Tests.ps1` | 17 |
-| Variable Group and connection write safety | `tests/foundation/Ado.Library.VariableGroups.Tests.ps1` | 17 |
-| Plan model, configuration loading, evidence writing | `tests/foundation/AdoAsCode.Core.Tests.ps1` | 22 |
-| The automation contract and the shipped examples | `tests/automations/Automations.Tests.ps1` | 12 |
+| Board column reconciliation | `tests/foundation/Ado.Work.BoardColumns.Tests.ps1` | 18 |
+| Variable Group and connection write safety | `tests/foundation/Ado.Library.VariableGroups.Tests.ps1` | 31 |
+| Plan model, configuration loading, evidence writing | `tests/foundation/AdoAsCode.Core.Tests.ps1` | 28 |
+| Where a credential may be sent, and the retry policy | `tests/foundation/Ado.Rest.Tests.ps1` | 26 |
+| The protections carried by every outbound request | `tests/foundation/Ado.Rest.RequestParameters.Tests.ps1` | 6 |
+| The automation contract and the shipped examples | `tests/automations/Automations.Tests.ps1` | 18 |
+
+Total: **127**. The two `Ado.Rest` files are the newer half of the suite and were
+missing from this table, which is how a document describing the test suite came to
+omit a quarter of it.
 
 Every test in the first two files corresponds to a specific way a naive implementation
 destroys something:
@@ -53,7 +59,7 @@ destroys something:
 | Live API calls | A test needing an organization, a token and a project is a test nobody runs. | `-Command validate` and `inventory`, run by a person. |
 | The HTTP layer | Testing it would mean testing a mock of Azure DevOps, which drifts from the real one and proves only that the mock matches the test. | Errors surface the service's own message, so a real failure is legible. |
 | The portal | Out of scope. | The manual checklist. |
-| Retry behaviour | Would require injecting failures through a mock. Judged not worth the fixture. | Named as a gap here rather than left implied. |
+| The retry *loop* | Driving it would mean injecting failures through a mock of the transport. The **decision** it makes was extracted instead. | `Get-AdoRetryDecision`, a pure function over (method, status, `Retry-After`, attempt), with ten tests in `Ado.Rest.Tests.ps1`. |
 
 ## 4. Static checks
 
@@ -63,7 +69,7 @@ destroys something:
 | PSScriptAnalyzer | Unused parameters, empty catch blocks, missing `ShouldProcess`, 5.1 incompatibilities. |
 | Sensitive data gate | Credential-shaped strings, private addresses, internal host names, workstation paths, plus a local deny list. |
 
-Two rules are excluded, each with the reason recorded in
+Six rules are excluded, each with the reason recorded in
 `PSScriptAnalyzerSettings.psd1`. Excluding a rule silently is how a settings file
 becomes folklore; excluding one with a measurement next to it is a decision somebody
 can disagree with.

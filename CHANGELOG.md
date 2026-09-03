@@ -12,6 +12,16 @@ breaking change to a schema is a major version, whatever the code did.
 
 ### Fixed
 
+- **Docs** — the test suite is described accurately again. `testing-strategy.md` listed
+  four files totalling 68 tests; there are six files and 127, and the two missing ones
+  are `Ado.Rest.Tests.ps1` and `Ado.Rest.RequestParameters.Tests.ps1` — a quarter of the
+  suite, including the ten tests for the retry policy that the same document listed as
+  *not covered*. The README's two counts are updated with it. A test-count claim nobody
+  can reproduce teaches a reader to distrust the rest of the document.
+- **Docs** — `testing-strategy.md` §4 said two PSScriptAnalyzer rules are excluded. Six
+  are. Also corrected the note in `PSScriptAnalyzerSettings.psd1` claiming the codebase
+  has no `Write-Host`: no `.ps1` or `.psm1` does, the pipeline YAML does, and the
+  analyzer does not read YAML either way.
 - **Docs** — `configuration-reference.md` described the environment variable for a secret
   Variable Group value as carrying the *same name as the variable in the group*. That is
   the rule the environment-qualified secret source replaced, and following it produced a
