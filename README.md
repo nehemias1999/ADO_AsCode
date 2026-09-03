@@ -151,7 +151,7 @@ Full walkthrough with the expected output of each step:
   redaction happens at the report writer; a two-layer gate fails the build on anything
   credential-shaped.
 - **Modular PowerShell.** Seven modules with manifests and explicit exports,
-  `Set-StrictMode -Version Latest` throughout, 68 Pester tests, PSScriptAnalyzer clean,
+  `Set-StrictMode -Version Latest` throughout, 127 Pester tests, PSScriptAnalyzer clean,
   running on Windows PowerShell 5.1 and PowerShell 7.
 - **Documentation as a deliverable.** Problem statement, capability catalogue, delivery
   method, risk register, ADRs, and a per-module guide that has to say how to reverse
@@ -175,7 +175,7 @@ Full walkthrough with the expected output of each step:
 .\scripts\Invoke-Tests.ps1
 ```
 
-Parse check, PSScriptAnalyzer, 68 Pester tests, and a sensitive data scan. Continuous
+Parse check, PSScriptAnalyzer, 127 Pester tests, and a sensitive data scan. Continuous
 integration runs the identical command on `windows-latest`, so "it passed locally" and
 "it passed in CI" mean the same thing.
 
