@@ -24,13 +24,14 @@ behind the modules it describes.
 
 Transport. Where a credential may be sent, how a request is built, and what is retried.
 
-Depends on: none. Exports 11.
+Depends on: none. Exports 12.
 
 | Function | Synopsis |
 | --- | --- |
 | `Assert-AdoOrganizationUrl` | Validates an organization URL before a credential is aimed at it, and returns it normalized. |
 | `Get-AdoAuthenticatedUser` | Returns the identity behind the Personal Access Token. |
 | `Get-AdoContext` | Builds the connection context every other call in the repository takes. |
+| `Get-AdoIdentityUrl` | Derives the base URL serving the identity and Graph endpoints for an organization URL. |
 | `Get-AdoProject` | Retrieves the team project named by the context. |
 | `Get-AdoRetryDecision` | Decides whether a failed request may be retried, and after how long. |
 | `Get-RequiredEnvironmentVariable` | Reads a process environment variable and fails with a usable message when it is missing. |

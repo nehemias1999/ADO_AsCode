@@ -180,7 +180,7 @@ point's own `Get-Help`, including why it is opt-in.
   redaction happens at the report writer; a two-layer gate fails the build on anything
   credential-shaped.
 - **Modular PowerShell.** Seven modules with manifests and explicit exports,
-  `Set-StrictMode -Version Latest` throughout, 129 Pester tests, PSScriptAnalyzer clean,
+  `Set-StrictMode -Version Latest` throughout, 140 Pester tests, PSScriptAnalyzer clean,
   running on Windows PowerShell 5.1 and PowerShell 7.
 - **Documentation as a deliverable.** Problem statement, capability catalogue, delivery
   method, risk register, ADRs, and a per-module guide that has to say how to reverse
@@ -209,7 +209,7 @@ point's own `Get-Help`, including why it is opt-in.
 .\scripts\Invoke-Tests.ps1
 ```
 
-Parse check, PSScriptAnalyzer, 129 Pester tests, and a sensitive data scan. Continuous
+Parse check, PSScriptAnalyzer, 140 Pester tests, and a sensitive data scan. Continuous
 integration runs the identical command on `windows-latest`, so "it passed locally" and
 "it passed in CI" mean the same thing.
 
