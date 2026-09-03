@@ -23,7 +23,7 @@ governs when a write may happen.
 | `smoke` | Yes | No | — | Plan plus the manual verification checklist. |
 | `apply` | Yes | **Yes** | `-ConfirmApply` | Create and reconcile. |
 | `reconcile` | Yes | **Yes** | `-ConfirmApply` | Correct an existing application. Refuses to create. |
-| `rename` | Yes | **Yes** | `-ConfirmApply -ConfirmRename` | Rename a Team and its Area Path. |
+| `rename` | Yes | **Yes** | `-ConfirmApply -ConfirmRename` | Rename a Team and its Area Path. **Workstation only** — not exposed by any pipeline. |
 
 Without its confirmation switch, a writing verb is a **pure simulation** and says so:
 

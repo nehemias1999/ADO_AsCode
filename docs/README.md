@@ -98,6 +98,7 @@ incomplete, and continuous integration enforces that.
 | --- | --- | --- |
 | `docs/` | Permanent, indexed, versioned knowledge. | Anything about one execution. |
 | `automations/*/README.md` | The short guide for one module, linking to its full guide here. | Contract details, which belong in `docs/guides/`. |
+| [`pipelines/README.md`](../pipelines/README.md) | How the automations run from Azure Pipelines, and which options are deliberately not exposed there. | Anything true of a workstation run, which belongs here. |
 | `.local/` | Workstation values, drafts, deny lists. Excluded from version control. | Anything another person needs. |
 | `artifacts/` | Reproducible output of one run. Excluded from version control. | A decision. A report is evidence, not a contract. |
 

@@ -54,6 +54,7 @@ A functional change is not done until all of these are true:
 | 4 | `CHANGELOG.md` has an entry naming the module and the observable result. |
 | 5 | A test covers the new rule, using fixtures that contain no real data. |
 | 6 | `plan` still produces the same output for unchanged input, or the difference is explained in the changelog entry. |
+| 7 | If the change adds a way to write, the guide says how to reverse it. |
 
 ## 5. What never enters a commit
 

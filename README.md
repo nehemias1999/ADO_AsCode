@@ -101,15 +101,20 @@ steps. See [docs/reference/architecture.md](docs/reference/architecture.md).
 
 Every module exposes the same ladder, and only the last three can write:
 
-| Command | Reads live state | Writes | Confirmation |
-| --- | --- | --- | --- |
-| `validate` | No | No | — |
-| `inventory` | Yes | No | — |
-| `plan` | Yes | No | — |
-| `smoke` | Yes | No | — |
-| `apply` | Yes | **Yes** | `-ConfirmApply` |
-| `reconcile` | Yes | **Yes** | `-ConfirmApply` |
-| `rename` | Yes | **Yes** | `-ConfirmApply -ConfirmRename` |
+| Command | Reads live state | Writes | Confirmation | From a pipeline |
+| --- | --- | --- | --- | --- |
+| `validate` | No | No | — | Yes |
+| `inventory` | Yes | No | — | Yes |
+| `plan` | Yes | No | — | Yes |
+| `smoke` | Yes | No | — | Yes |
+| `apply` | Yes | **Yes** | `-ConfirmApply` | Yes |
+| `reconcile` | Yes | **Yes** | `-ConfirmApply` | Yes |
+| `rename` | Yes | **Yes** | `-ConfirmApply -ConfirmRename` | **No — workstation only** |
+
+`rename` is deliberately absent from the pipeline definitions. It rewrites
+`System.AreaPath` on every Work Item below the path, which is the one operation here
+whose blast radius is not bounded by the plan, so it is not something to trigger from a
+form. See [pipelines/README.md](pipelines/README.md).
 
 ## Quickstart
 
@@ -135,6 +140,30 @@ repository defines a finished change.
 
 Full walkthrough with the expected output of each step:
 [docs/guides/end-to-end-walkthrough.md](docs/guides/end-to-end-walkthrough.md).
+When something goes wrong: [docs/guides/troubleshooting.md](docs/guides/troubleshooting.md).
+
+### What goes in `.env`
+
+Configuration files declare the **name** of a variable; only [.env.example](.env.example)
+holds values, and it is the file `bootstrap.ps1` copies for you.
+
+| Variable | Needed by | Notes |
+| --- | --- | --- |
+| `ADO_ORG_URL`, `ADO_PROJECT`, `ADO_PAT` | Everything that touches the API | `validate` needs none of them |
+| `<APP>_MEMBERS` | `team-provisioning` | Sign-in addresses separated by `;`, `,` or newline |
+| `<KEY>_<ENV>` | `variable-group-configuration` | A **secret** group value, qualified with the environment. Non-secret values live in the values CSV, not here |
+| `SFTP_<APP>_<ENV>_{HOST,USERNAME,PASSWORD,PRIVATE_KEY}` | `service-connection-provisioning` | Names come from `credentialVariables` |
+
+Field by field: [configuration-reference.md](docs/reference/configuration-reference.md).
+
+### Overriding a path
+
+Every entry point defaults every file it reads, so a caller overrides only what differs:
+`-EnvFile`, `-ProjectContextPath`, `-ConfigurationPath`, `-ScopePath`, `-CsvPath`,
+`-BoardColumnsPath`, `-ReportPath`. Three switches widen what a command may do —
+`-ForceUpdate` and `-ForceCredentialOverwrite` (Service Connections) and
+`-AllowUnqualifiedSecretName` (Variable Groups) — and each is documented in the entry
+point's own `Get-Help`, including why it is opt-in.
 
 ## What this repository demonstrates
 
@@ -164,10 +193,15 @@ Full walkthrough with the expected output of each step:
 | --- | --- |
 | `foundation/` | The shared layer: seven modules, the project context, and the loader |
 | `automations/` | One directory per automation: entry point, config, schemas, guide |
-| `pipelines/` | One Azure DevOps YAML per automation |
+| `pipelines/` | One Azure DevOps YAML per automation — see [pipelines/README.md](pipelines/README.md) |
 | `scripts/` | `bootstrap.ps1`, `Invoke-Tests.ps1`, `Test-NoSensitiveData.ps1` |
 | `tests/` | Pester suite and shared fixtures |
 | `docs/` | [Documentation index](docs/README.md) |
+| `.github/workflows/` | The quality gate and the documentation check that run on every PR |
+| `.env.example` | Template for `.env`, and the only place variable values are named |
+| `PSScriptAnalyzerSettings.psd1` | Analyzer rules, each exclusion with its reason beside it |
+| `.local/` | Workstation scratch space. Ignored by Git; may hold real credentials |
+| `artifacts/` | Plans, reports and receipts from a run. Ignored by Git |
 
 ## Quality gate
 
@@ -178,6 +212,14 @@ Full walkthrough with the expected output of each step:
 Parse check, PSScriptAnalyzer, 127 Pester tests, and a sensitive data scan. Continuous
 integration runs the identical command on `windows-latest`, so "it passed locally" and
 "it passed in CI" mean the same thing.
+
+Running the automations needs nothing but PowerShell. Running the **gate** needs two
+modules, which `bootstrap.ps1 -CheckOnly` reports on and CI installs:
+
+```powershell
+Install-Module Pester -MinimumVersion 5.5 -Scope CurrentUser
+Install-Module PSScriptAnalyzer -Scope CurrentUser
+```
 
 ## Scope
 
@@ -200,7 +242,10 @@ folder.
 | --- | --- |
 | Run it | [getting-started.md](docs/guides/getting-started.md) |
 | See it work end to end | [end-to-end-walkthrough.md](docs/guides/end-to-end-walkthrough.md) |
+| **Fix something that went wrong** | [troubleshooting.md](docs/guides/troubleshooting.md) |
 | Know exactly what it does | [capabilities.md](docs/overview/capabilities.md) |
+| Fill in a configuration file | [configuration-reference.md](docs/reference/configuration-reference.md) |
+| Run it from Azure Pipelines | [pipelines/README.md](pipelines/README.md) |
 | Understand how the work was done | [delivery-approach.md](docs/process/delivery-approach.md) |
 | Learn the API traps | [azure-devops-notes.md](docs/reference/azure-devops-notes.md) |
 | Add an automation | [automation-contract.md](docs/reference/automation-contract.md) |
