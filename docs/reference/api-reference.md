@@ -145,7 +145,7 @@ Depends on: none. Exports 9.
 
 Evidence: the report, its Markdown sibling, the incremental receipt, and redaction at the writer.
 
-Depends on: AdoAsCode.Plan. Exports 6.
+Depends on: AdoAsCode.Plan. Exports 7.
 
 | Function | Synopsis |
 | --- | --- |
@@ -154,6 +154,7 @@ Depends on: AdoAsCode.Plan. Exports 6.
 | `New-AdoAsCodeProvenance` | Builds the block recording who ran a command, from where, and at which commit. |
 | `Remove-SensitiveValue` | Returns a copy of an object with sensitive property values replaced. |
 | `Save-AdoAsCodeReceipt` | Writes or updates the receipt of an apply. |
+| `Write-AdoAsCodeLog` | Writes one progress line, stamped with the time and the run it belongs to. |
 | `Write-AdoAsCodeReport` | Writes a plan or result report as JSON, plus a Markdown sibling. |
 
 ## Related documents

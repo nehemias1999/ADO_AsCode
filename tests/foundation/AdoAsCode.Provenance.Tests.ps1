@@ -208,3 +208,34 @@ Describe 'Provenance in the evidence' {
         }
     }
 }
+
+Describe 'Write-AdoAsCodeLog' {
+
+    It 'stamps the time and the run the line belongs to' {
+        # The run id is what joins a log line to the receipt an operator is holding.
+        # Eight characters, because the whole id on every line is noise.
+        $line = (Write-AdoAsCodeLog -Module 'team-provisioning' -Message 'Plan complete.' `
+                -RunId '20260902T141233Z-7f3a9c21' -InformationAction Continue 6>&1) -join ''
+
+        $line | Should -Match '^\d{2}:\d{2}:\d{2} \[team-provisioning 7f3a9c21\] Plan complete\.$'
+    }
+
+    It 'omits the run id rather than printing a blank one' {
+        # The offline validate path logs before any provenance exists.
+        $line = (Write-AdoAsCodeLog -Module 'team-provisioning' -Message 'Valid.' -InformationAction Continue 6>&1) -join ''
+
+        $line | Should -Match '^\d{2}:\d{2}:\d{2} \[team-provisioning\] Valid\.$'
+    }
+
+    It 'writes to the information stream, not the host' {
+        # What makes the line capturable and silenceable, and the reason
+        # PSAvoidUsingWriteHost can stay excluded without cost.
+        $captured = Write-AdoAsCodeLog -Module 'm' -Message 'x' -InformationAction SilentlyContinue 6>&1
+        $captured | Should -Not -BeNullOrEmpty
+    }
+
+    It 'tags a warning without needing a second function' {
+        $line = (Write-AdoAsCodeLog -Module 'm' -Message 'careful' -Level warn -InformationAction Continue 6>&1) -join ''
+        $line | Should -BeLike '*WARN careful*'
+    }
+}

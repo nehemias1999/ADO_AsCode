@@ -106,6 +106,12 @@ Set-StrictMode -Version Latest
 $script:WritingCommands = @('apply')
 $ErrorActionPreference = 'Stop'
 
+# Declared before anything can log. Provenance is built only once a connection context
+# exists, which the offline validate path never reaches, and Set-StrictMode makes
+# reading an unassigned variable a terminating error rather than an empty string.
+$script:runId = $null
+$script:provenance = $null
+
 $moduleName = 'service-connection-provisioning'
 $repoRoot = (Resolve-Path -LiteralPath (Join-Path $PSScriptRoot '..\..')).Path
 
@@ -114,15 +120,29 @@ $repoRoot = (Resolve-Path -LiteralPath (Join-Path $PSScriptRoot '..\..')).Path
 function Write-ModuleLog {
     <#
     .SYNOPSIS
-        Writes a prefixed progress line to the information stream.
+        Writes a progress line for this automation.
+
+    .DESCRIPTION
+        A named wrapper so the ~40 call sites in this file stay short. Everything that
+        makes the line - the information stream, the timestamp, the run id that joins a
+        log to its receipt - lives in Write-AdoAsCodeLog, in one place rather than in
+        three copies that drift.
 
     .PARAMETER Message
         Text to write.
+
+    .PARAMETER Level
+        Severity tag. Progress by default.
     #>
     [CmdletBinding()]
-    param([Parameter(Mandatory)] [string] $Message)
+    param(
+        [Parameter(Mandatory)] [AllowEmptyString()] [string] $Message,
+        [ValidateSet('info', 'warn')] [string] $Level = 'info'
+    )
 
-    Write-Information "[$moduleName] $Message" -InformationAction Continue
+    # $script:runId is $null until provenance is built, which the offline validate path
+    # never reaches. Write-AdoAsCodeLog omits the field rather than printing a blank.
+    Write-AdoAsCodeLog -Module $moduleName -Message $Message -RunId $script:runId -Level $Level
 }
 
 function Expand-NamePattern {
