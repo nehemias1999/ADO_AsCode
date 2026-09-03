@@ -39,7 +39,7 @@ jobs:
       # whoever controls the tag will not change what runs in a job holding this
       # repository's token.
       - name: Check out the repository
-        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       # Printed per edition, because the answer differs and that difference is the
       # reason both are run: 5.1 reports Test-Json -Schema as False, so it validates
@@ -116,7 +116,7 @@ jobs:
 
     steps:
       - name: Check out the repository
-        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       # .gitattributes and .editorconfig were declared and verified by nobody. This is
       # the half that can be checked mechanically: re-applying the attributes to the
