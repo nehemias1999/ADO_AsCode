@@ -67,6 +67,7 @@ incomplete, and continuous integration enforces that.
 
 | Document | Answers |
 | --- | --- |
+| [api-reference.md](reference/api-reference.md) | Every function the foundation exports, with the synopsis from its own help. |
 | [architecture.md](reference/architecture.md) | The layers and the dependency rules. |
 | [automation-contract.md](reference/automation-contract.md) | The seven things a new automation must provide. |
 | [command-model.md](reference/command-model.md) | Every verb, every status, and the apply gate. |

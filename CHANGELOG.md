@@ -12,6 +12,12 @@ breaking change to a schema is a major version, whatever the code did.
 
 ### Fixed
 
+- **Docs** — added `docs/reference/api-reference.md`, naming all 71 functions the
+  foundation exports with the synopsis each declares in its own comment-based help. 53 of
+  them appeared in no document at all, so the only way to learn whether a behaviour
+  already existed was to open seven `.psm1` files — which is how the same helper gets
+  written twice. Two tests keep it honest: one fails if an exported function is missing
+  from the page, one fails if a synopsis there stops matching `Get-Help`.
 - **Docs** — the README now links troubleshooting, names every family of environment
   variable rather than the three connection ones, lists the path overrides and the three
   widening switches, completes the repository layout with `.github/`, `.env.example`,

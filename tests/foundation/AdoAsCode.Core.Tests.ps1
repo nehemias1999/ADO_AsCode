@@ -324,3 +324,38 @@ Describe 'AdoAsCode.Report' {
         $receipt.completedOperations[0].name | Should -Be 'APP_TEST_Team'
     }
 }
+
+Describe 'API reference' {
+
+    It 'names every function the foundation exports' {
+        # 53 of the 71 exported functions appeared in no document at all, so the only
+        # way to find out whether a behaviour already existed was to open seven .psm1
+        # files. The reference closes that, and this test is what stops it reopening:
+        # a page listing most of a surface is worse than none, because a reader who
+        # does not find a function concludes it does not exist.
+        $reference = Get-Content -Raw -LiteralPath (Join-Path $repoRoot 'docs/reference/api-reference.md')
+
+        $missing = New-Object System.Collections.ArrayList
+        foreach ($manifest in (Get-ChildItem -LiteralPath (Join-Path $repoRoot 'foundation/modules') -Recurse -Filter '*.psd1')) {
+            foreach ($function in (Import-PowerShellDataFile -LiteralPath $manifest.FullName).FunctionsToExport) {
+                if ($reference -notmatch "``$([regex]::Escape($function))``") {
+                    $missing.Add("$($manifest.BaseName)/$function") | Out-Null
+                }
+            }
+        }
+
+        $missing | Should -BeNullOrEmpty -Because 'every exported function must appear in docs/reference/api-reference.md'
+    }
+
+    It 'quotes the synopsis each function actually declares' {
+        # The page states that it and Get-Help cannot disagree. Asserted rather than
+        # trusted, because a hand-edit is exactly how that claim stops being true.
+        . (Join-Path $repoRoot 'foundation/Import-Foundation.ps1')
+        $reference = Get-Content -Raw -LiteralPath (Join-Path $repoRoot 'docs/reference/api-reference.md')
+
+        foreach ($function in @('Get-AdoRetryDecision', 'Get-AdoVariableGroupSecretSource', 'Save-AdoAsCodeReceipt')) {
+            $synopsis = ((Get-Help $function).Synopsis -replace '\s+', ' ').Trim().TrimEnd('.')
+            $reference | Should -BeLike "*$synopsis*" -Because "$function's synopsis must be the one in its help"
+        }
+    }
+}

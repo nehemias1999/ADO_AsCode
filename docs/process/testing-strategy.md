@@ -29,12 +29,12 @@ The test suite is a consequence of that shape, not a bolt-on.
 | --- | --- | --- |
 | Board column reconciliation | `tests/foundation/Ado.Work.BoardColumns.Tests.ps1` | 18 |
 | Variable Group and connection write safety | `tests/foundation/Ado.Library.VariableGroups.Tests.ps1` | 31 |
-| Plan model, configuration loading, evidence writing | `tests/foundation/AdoAsCode.Core.Tests.ps1` | 28 |
+| Plan model, configuration loading, evidence writing, API reference drift | `tests/foundation/AdoAsCode.Core.Tests.ps1` | 30 |
 | Where a credential may be sent, and the retry policy | `tests/foundation/Ado.Rest.Tests.ps1` | 26 |
 | The protections carried by every outbound request | `tests/foundation/Ado.Rest.RequestParameters.Tests.ps1` | 6 |
 | The automation contract and the shipped examples | `tests/automations/Automations.Tests.ps1` | 18 |
 
-Total: **127**. The two `Ado.Rest` files are the newer half of the suite and were
+Total: **129**. The two `Ado.Rest` files are the newer half of the suite and were
 missing from this table, which is how a document describing the test suite came to
 omit a quarter of it.
 
